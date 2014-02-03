@@ -1,0 +1,30 @@
+%!TEX TS-options = -shell-escape
+\documentclass[oribibl, fleqn]{llncs}
+\pagestyle{headings}
+\bibliographystyle{plain}
+\newenvironment{changemargin}[2]{%
+\begin{list}{}{%
+\setlength{\topsep}{0pt}%
+\setlength{\leftmargin}{#1}%
+\setlength{\rightmargin}{#2}%
+\setlength{\listparindent}{\parindent}%
+\setlength{\itemindent}{\parindent}%
+\setlength{\parsep}{\parskip}%
+}%
+\item[]}{\end{list}}
+\begin{document}
+\mainmatter
+\title{Copatterns}
+\author{Sune Alkærsig, Thomas Hallier Didriksen \\
+\email{\{sual, thdi\}@itu.dk}}
+
+\institute{IT University of Copenhagen, Rued Langgaards Vej 7, 2300 Copenhagen S, Denmark}
+\maketitle
+
+\begin{abstract}
+Abstract.
+\keywords{Copatterns}
+\end{abstract}
+
+\bibliography{bibliography}
+\end{document}
