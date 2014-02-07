@@ -1,0 +1,52 @@
+data Nat : Set 
+{
+  Z : Nat
+; S : Nat -> Nat 
+}
+
+data List (A : Set) : Set
+{
+  nil : List A
+; cons : A -> List A -> List A
+}
+
+data Vect (A : Set) (n : Nat) : Set
+{
+  nil : Vect A Z
+; cons : A -> Vect A n -> Vect A (S n)
+}
+
+fun plus : Nat -> Nat -> Nat
+{
+  plus Z m     = m
+; plus (S n) m = S(plus n m)
+}
+
+fun append : (A : Set) -> (n : Nat) -> (m : Nat) -> Vect A n -> Vect A m -> Vect A (plus n m)
+{
+  append A Z     m nil         ys = ys
+; append A (S n) m (cons x xs) ys = cons x (append A n m xs ys)
+}
+
+data Fin (n : Nat) : Set
+{
+  fZ : Fin (S n)
+; fS : Fin n -> Fin (S n)
+}
+
+fun lookup : (A : Set) -> (n : Nat) -> Fin n -> Vect A n -> A
+{
+  lookup A Z     ()     nil
+; lookup A (S n) fZ     (cons x xs) = x
+; lookup A (S n) (fS i) (cons x xs) = lookup A n i xs
+}
+
+data Prod (A : Set) (B : Set) : Set
+{
+  pair : (fst : A) -> (snd : B) -> Prod A B
+} fields fst, snd
+
+sized codata Stream (A : Set) : Size -> Set 
+{ 
+  cons : (i : Size) -> (head : A) -> (tail : Stream A i) -> Stream A $i
+} fields head, tail

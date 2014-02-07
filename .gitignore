@@ -1,3 +1,14 @@
+# Agda:
+*.agdai
+
+# Emacs: 
+*~
+\#*\#
+
+# OS X:
+.DS_Store
+
+# Auto-gen
 *.acn
 *.acr
 *.alg
