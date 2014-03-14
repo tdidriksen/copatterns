@@ -21,10 +21,14 @@ data Expr
   | ERecord [(Sym, Expr)]
   | ERecordProj Expr Sym
   | ECase Expr [(Sym, (Sym, Expr))]
-  | ETag Sym Expr Type
+  | ETag Sym Expr Type 
   | EFix Expr
   | EFold Type
   | EUnfold Type
+  | ERoot [Expr]
+  | EData Sym Type
+  | ELetFun Sym Type Expr
+  | ETypeVar Sym
   deriving (Eq, Show)
 
 data Lit
@@ -67,7 +71,7 @@ natList = TRec "NatList" (natListBody)
 natPred = ELam "n" nat (
             ECase (EApp (EUnfold nat) (EVar "n")) [
               ("Z", ("()", EApp (EFold nat) (ETag "Z" EUnit natBody))),
-              ("S", ("n", EVar "n"))
+              ("S", ("n'", EVar "n'"))
             ]
           )
 

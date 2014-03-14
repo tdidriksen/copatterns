@@ -15,56 +15,56 @@ typeEquality :: Type -> Type -> Either TypeError Type
 typeEquality t1 t2 | t1 == t2 = Right t1
 typeEquality t1 t2            = throwError $ Err ("Type mismatch: " ++ (shows t1 "") ++ " is not a " ++ (shows t2 ""))
 
-check :: Env -> Expr -> Either TypeError Type
-check _ EUnit              = return TUnit
-check _ (ELit (LInt _))    = return TInt
-check _ (ELit (LBool _))   = return TBool
-check _ (ELit (LString _)) = return TString
-check env (EVar x) = case (lookup x env) of
+check :: Env -> Env -> Expr -> Either TypeError Type
+check _ _ EUnit              = return TUnit
+check _ _ (ELit (LInt _))    = return TInt
+check _ _ (ELit (LBool _))   = return TBool
+check _ _ (ELit (LString _)) = return TString
+check vEnv tEnv (EVar x) = case (lookup x vEnv) of
 	Just e  -> return e
 	Nothing -> throwError $ Err (x ++ " not in scope")
-check env (ELam x t e) = do
-	rhs <- (check ((x,t) : env) e)
+check vEnv tEnv (ELam x t e) = do
+	rhs <- (check ((x,t) : vEnv) tEnv e)
 	return (TArr t rhs)
-check env (EApp e1 e2) = do
-	t1 <- check env e1
-	t2 <- check env e2
+check vEnv tEnv (EApp e1 e2) = do
+	t1 <- check vEnv tEnv e1
+	t2 <- check vEnv tEnv e2
 	case t1 of
 		(TArr f a) -> case typeEquality f t2 of
                     Right _ -> return a
                     Left x  -> throwError x
 		_ -> throwError $ Err "Not an arrow type"
-check env (ELet x e1 e2) = do
-  t1 <- check env e1
-  t2 <- check ((x, t1) : env) e2
+check vEnv tEnv (ELet x e1 e2) = do
+  t1 <- check vEnv tEnv e1
+  t2 <- check ((x, t1) : vEnv) tEnv e2
   return t2
-check env (EIf c b1 b2) = do
-  ct <- check env c
+check vEnv tEnv (EIf c b1 b2) = do
+  ct <- check vEnv tEnv c
   bt <- typeEquality ct TBool
-  t1 <- check env b1
-  t2 <- check env b2
+  t1 <- check vEnv tEnv b1
+  t2 <- check vEnv tEnv b2
   (typeEquality t1 t2)
-check env (EPair e1 e2) = do
-  t1 <- check env e1
-  t2 <- check env e2
+check vEnv tEnv (EPair e1 e2) = do
+  t1 <- check vEnv tEnv e1
+  t2 <- check vEnv tEnv e2
   return (TProd t1 t2)
-check env (EFst e) = do
-  t <- check env e
+check vEnv tEnv (EFst e) = do
+  t <- check vEnv tEnv e
   case t of
     (TProd t1 _) -> return t1
     _            -> throwError $ Err "Not a product type"
-check env (ESnd e) = do
-  t <- check env e
+check vEnv tEnv (ESnd e) = do
+  t <- check vEnv tEnv e
   case t of
     (TProd _ t2) -> return t2
     _            -> throwError $ Err "Not a product type"
-check env (ETuple es) = do
-  let ts = map (check env) es in
+check vEnv tEnv (ETuple es) = do
+  let ts = map (check vEnv tEnv) es in
     case lefts ts of
       []    -> return (TTuple (rights ts))
       x : _ -> throwError x
-check env (ETupProj e l) = do
-  t <- check env e
+check vEnv tEnv (ETupProj e l) = do
+  t <- check vEnv tEnv e
   case l of
     ELit li ->
       case li of
@@ -75,38 +75,38 @@ check env (ETupProj e l) = do
             _                         -> throwError $ Err "Not a tuple type"
         _ -> throwError $ Err "Index not an integer"
     _ -> throwError $ Err "Index not a literate"
-check env (ERecord es) = do
-  let ts = map (check env) (map snd es) in
+check vEnv tEnv (ERecord es) = do
+  let ts = map (check vEnv tEnv) (map snd es) in
     case lefts ts of
       []    -> return (TRecord (zip (map fst es) (rights ts)))
       x : _ -> throwError x
-check env (ERecordProj e s) = do
+check vEnv tEnv (ERecordProj e s) = do
   case e of
     ERecord es ->
       case lookup s es of
-        Just exp -> check env exp
+        Just exp -> check vEnv tEnv exp
         Nothing  -> throwError $ Err "Not in scope"
     _       -> throwError $ Err "Not a record"
-check env (ETag s e t) = do
+check vEnv tEnv (ETag s e t) = do
   case t of
     TVari fs ->
       case lookup s fs of
         Just et -> do
-          at <- check env e
+          at <- check vEnv tEnv e
           case typeEquality at et of
             Right _ -> return t
             Left  x -> throwError x
         Nothing -> throwError $ Err "Label not found in variant type"
     _ -> throwError $ Err "Not a variant type"
-check env (ECase e es) = do
-  (TRec s vt) <- check env e
+check vEnv tEnv (ECase e es) = do
+  (TRec s vt) <- check vEnv tEnv e
   case vt of
     TVari fs ->
       if (not $ all (\x -> elem x (map fst fs)) (map fst es)) 
         then throwError $ Err "Not all labels were in type" 
         else 
-          let envs = map (: env) (zip (map fst (map snd es)) (map snd fs)) in
-            let ts = zipWith check envs (map snd (map snd es)) in
+          let vEnvs = map (: vEnv) (zip (map fst (map snd es)) (map snd fs)) in
+            let ts = zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) in
               case lefts ts of
                 []    -> 
                   case rights ts of
@@ -117,19 +117,28 @@ check env (ECase e es) = do
                         x : _ -> throwError x
                 x : _ -> throwError x
     _ -> throwError $ Err "Not a variant type"
-check env (EFix e) = do
-  t <- check env e
+check vEnv tEnv (EFix e) = do
+  t <- check vEnv tEnv e
   case t of
     TArr i o -> typeEquality i o
     _ -> throwError $ Err "Not an arrow type"
-check env (EFold t) = do
+check vEnv tEnv (EFold t) = do
   case t of
     TRec s nt -> return $ TArr nt t
     _         -> throwError $ Err "Not a recursive type"
-check env (EUnfold t) = do
+check vEnv tEnv (EUnfold t) = do
   case t of
     TRec s nt -> return $ TArr t (TRec s (substTypeVari s t nt))
     _         -> throwError $ Err "Not a recursive type"
+check vEnv tEnv (EData s t) = 
+  case t of
+    TRec s' nt | s == s' -> return $ TRec s nt
+               | otherwise -> throwError $ Err "Data labels not matching"
+    _                      -> throwError $ Err "Not a recursive type"
+check vEnv tEnv (ELetFun s t e) = do
+  at <- check vEnv tEnv e
+  typeEquality at t
+check _ _ _ = throwError $ Err "Not a valid expression"
 
 checkSym :: Env -> Sym -> Either TypeError Type
 checkSym []            name = throwError $ Err (name ++ " not found")
@@ -167,4 +176,26 @@ substTypeVari s t (TTypeVar s') | s == s' = t
 substTypeVari _ _ a = a
 
 checkExpr :: Expr -> Either TypeError Type
-checkExpr x = check [] x
+checkExpr x = check [] [] x
+
+buildRootEnv :: [Expr] -> Either TypeError (Env, Env)
+buildRootEnv []       = Right ([], [])
+buildRootEnv (x : xs) = case buildRootEnv xs of
+                          Right l -> 
+                            case x of
+                              EData   s t   -> return $ (fst l, (s, t) : (snd l))
+                              ELetFun s t _ -> return $ ((s, t) : (fst l), snd l)
+                              _             -> throwError $ Err "Not a valid root type"
+                          Left  e -> throwError e
+
+                        
+
+checkRoot :: Expr -> Either TypeError [Type]
+checkRoot (ERoot es) = case buildRootEnv es of
+                         Right l -> 
+                          let ts = map (check (fst l) (snd l)) es in 
+                            case lefts $ ts of
+                              []    -> return $ rights ts
+                              e : _ -> throwError e
+                         Left  e -> throwError e
+
