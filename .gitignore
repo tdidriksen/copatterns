@@ -5,6 +5,10 @@
 *~
 \#*\#
 
+# Haskell:
+*.hi
+*.o
+
 # OS X:
 .DS_Store
 

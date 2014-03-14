@@ -3,6 +3,7 @@
 module Copatterns where
 
 record Stream (A : Set) : Set where
+  coinductive
   field
     head : A
     tail : Stream A
