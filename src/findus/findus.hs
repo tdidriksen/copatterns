@@ -1,7 +1,5 @@
 module Findus where
 
-import Prelude
-
 type Sym = String 
 type Env = [(Sym, Type)]
 

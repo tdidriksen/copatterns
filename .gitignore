@@ -1,3 +1,7 @@
+# SublimeText:
+*.sublime-workspace
+*.sublime-project
+
 # Agda:
 *.agdai
 
