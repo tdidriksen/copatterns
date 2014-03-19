@@ -6,63 +6,112 @@ import Control.Monad.Error
 import Control.Monad.Identity
 import Findus
 
+data TypedExpr
+  = TEUnit       Type
+  | TEVar        Type Sym
+  | TELam        Type Sym Type TypedExpr
+  | TEApp        Type TypedExpr TypedExpr
+  | TELit        Type Lit
+  | TELet        Type Sym TypedExpr TypedExpr
+  | TEIf         Type TypedExpr TypedExpr TypedExpr
+  | TETuple      Type [TypedExpr]
+  | TETupProj    Type TypedExpr TypedExpr
+  | TERecord     Type [(Sym, TypedExpr)]
+  | TERecordProj Type TypedExpr Sym
+  | TECase       Type TypedExpr [(Sym, (Sym, TypedExpr))]
+  | TETag        Type Sym TypedExpr
+  | TEFold       Type Type
+  | TEUnfold     Type Type
+  | TEData       Type Sym
+  | TELetFun     Type Sym TypedExpr
+  deriving (Eq, Show)
+
 data TypeError = Err String deriving Show
 
 instance Error TypeError where
   noMsg = Err ""
 
 typeEquality :: Type -> Type -> Either TypeError Type
-typeEquality t1 t2 | t1 == t2 = Right t1
-typeEquality t1 t2            = throwError $ Err ("Type mismatch: " ++ (shows t1 "") ++ " is not a " ++ (shows t2 ""))
+typeEquality t1 t2 | t1 == t2  = return t1
+                   | otherwise = throwError $ Err ("Type mismatch: " ++ (shows t1 "") ++ " is not a " ++ (shows t2 ""))
 
-check :: Env -> Env -> Expr -> Either TypeError Type
-check _ _ EUnit              = return TUnit
-check _ _ (ELit (LInt _))    = return TInt
-check _ _ (ELit (LBool _))   = return TBool
-check _ _ (ELit (LString _)) = return TString
+getTypeAnno :: TypedExpr -> Type
+getTypeAnno (TEUnit       t      ) = t
+getTypeAnno (TEVar        t _    ) = t
+getTypeAnno (TELam        t _ _ _) = t
+getTypeAnno (TEApp        t _ _  ) = t
+getTypeAnno (TELit        t _    ) = t
+getTypeAnno (TELet        t _ _ _) = t
+getTypeAnno (TEIf         t _ _ _) = t
+getTypeAnno (TETuple      t _    ) = t
+getTypeAnno (TETupProj    t _ _  ) = t
+getTypeAnno (TERecord     t _    ) = t
+getTypeAnno (TERecordProj t _ _  ) = t
+getTypeAnno (TECase       t _ _  ) = t
+getTypeAnno (TETag        t _ _  ) = t
+getTypeAnno (TEFold       t _    ) = t
+getTypeAnno (TEUnfold     t _    ) = t
+getTypeAnno (TEData       t _    ) = t
+getTypeAnno (TELetFun     t _ _  ) = t
+
+check :: Env -> Env -> Expr -> Either TypeError TypedExpr
+check _ _ EUnit              = return $ TEUnit TUnit
+
+check _ _ (ELit (LInt i))    = return $ TELit TInt (LInt i)
+check _ _ (ELit (LBool b))   = return $ TELit TBool (LBool b)
+check _ _ (ELit (LString s)) = return $ TELit TString (LString s)
+
 check vEnv tEnv (EVar x) = case (lookup x vEnv) of
-	Just e  -> return e
+	Just e  -> return $ TEVar e x
 	Nothing -> throwError $ Err (x ++ " not in scope")
 check vEnv tEnv (ELam x t e) = do
-	rhs <- (check ((x,t) : vEnv) tEnv e)
-	return (TArr t rhs)
+  rhs <- (check ((x,t) : vEnv) tEnv e)
+  return $ TELam (TArr t (getTypeAnno rhs)) x t rhs 
 check vEnv tEnv (EApp e1 e2) = do
-	t1 <- check vEnv tEnv e1
-	t2 <- check vEnv tEnv e2
-	case t1 of
-		(TArr f a) -> case typeEquality f t2 of
-                    Right _ -> return a
+  te1 <- check vEnv tEnv e1
+  te2 <- check vEnv tEnv e2
+  case getTypeAnno te1 of
+    (TArr f a) -> case typeEquality f (getTypeAnno te2) of
+                    Right _ -> return $ TEApp a te1 te2
                     Left x  -> throwError x
-		_ -> throwError $ Err "Not an arrow type"
+    _ -> throwError $ Err "Application on non arrow type"
 check vEnv tEnv (ELet x e1 e2) = do
-  t1 <- check vEnv tEnv e1
-  t2 <- check ((x, t1) : vEnv) tEnv e2
-  return t2
+  te1 <- check vEnv tEnv e1
+  te2 <- check ((x, (getTypeAnno te1)) : vEnv) tEnv e2
+  return $ TELet (getTypeAnno te2) x te1 te2
 check vEnv tEnv (EIf c b1 b2) = do
   ct <- check vEnv tEnv c
-  bt <- typeEquality ct TBool
-  t1 <- check vEnv tEnv b1
-  t2 <- check vEnv tEnv b2
-  (typeEquality t1 t2)
-check vEnv tEnv (EPair e1 e2) = do
-  t1 <- check vEnv tEnv e1
-  t2 <- check vEnv tEnv e2
-  return (TProd t1 t2)
-check vEnv tEnv (EFst e) = do
-  t <- check vEnv tEnv e
-  case t of
-    (TProd t1 _) -> return t1
-    _            -> throwError $ Err "Not a product type"
-check vEnv tEnv (ESnd e) = do
-  t <- check vEnv tEnv e
-  case t of
-    (TProd _ t2) -> return t2
-    _            -> throwError $ Err "Not a product type"
+  case getTypeAnno ct of  
+    TBool -> do
+      te1 <- check vEnv tEnv b1
+      te2 <- check vEnv tEnv b2
+      case (typeEquality (getTypeAnno te1) (getTypeAnno te2)) of
+        Right(t) -> return $ TEIf t ct te1 te2
+        _        -> throwError $ Err "Types of branches in IF are not equal"
+    _ -> throwError $ Err "Conditional of IF not a Boolean type"
 check vEnv tEnv (ETuple es) = do
   let ts = map (check vEnv tEnv) es in
     case lefts ts of
-      []    -> return (TTuple (rights ts))
+      []    -> return $ TETuple (TTuple (map getTypeAnno (rights ts))) (rights ts)
       x : _ -> throwError x
+{-
+check vEnv tEnv (ETupProj e l) = do
+  t <- check vEnv tEnv e
+  case l of
+    ELit li ->
+      case li of
+        LInt i ->
+          case getTypeAnno t of
+            TTuple ts | length ts > i -> return $ ts !! i
+            TTuple ts                 -> throwError $ Err "Tuple index too large"
+            _                         -> throwError $ Err "Tuple projection attempted on non tuple type"
+        _ -> throwError $ Err "Tuple index not an integer"
+    _ -> throwError $ Err "Tuple index not a literate"
+check _ _ _ = throwError $ Err "Not a valid expression"
+
+
+
+
 check vEnv tEnv (ETupProj e l) = do
   t <- check vEnv tEnv e
   case l of
@@ -71,10 +120,10 @@ check vEnv tEnv (ETupProj e l) = do
         LInt i ->
           case t of
             TTuple ts | length ts > i -> return $ ts !! i
-            TTuple ts                 -> throwError $ Err "Too large an index"
-            _                         -> throwError $ Err "Not a tuple type"
-        _ -> throwError $ Err "Index not an integer"
-    _ -> throwError $ Err "Index not a literate"
+            TTuple ts                 -> throwError $ Err "Tuple index too large"
+            _                         -> throwError $ Err "Tuple projection attempted on non tuple type"
+        _ -> throwError $ Err "Tuple index not an integer"
+    _ -> throwError $ Err "Tuple index not a literate"
 check vEnv tEnv (ERecord es) = do
   let ts = map (check vEnv tEnv) (map snd es) in
     case lefts ts of
@@ -85,8 +134,8 @@ check vEnv tEnv (ERecordProj e s) = do
     ERecord es ->
       case lookup s es of
         Just exp -> check vEnv tEnv exp
-        Nothing  -> throwError $ Err "Not in scope"
-    _       -> throwError $ Err "Not a record"
+        Nothing  -> throwError $ Err (s ++ "not in record scope")
+    _       -> throwError $ Err "Record projection on non record"
 check vEnv tEnv (ETag s e t) = do
   case t of
     TVari fs ->
@@ -97,13 +146,13 @@ check vEnv tEnv (ETag s e t) = do
             Right _ -> return t
             Left  x -> throwError x
         Nothing -> throwError $ Err "Label not found in variant type"
-    _ -> throwError $ Err "Not a variant type"
+    _ -> throwError $ Err "Can only tag as variant types"
 check vEnv tEnv (ECase e es) = do
   (TRec s vt) <- check vEnv tEnv e
   case vt of
     TVari fs ->
       if (not $ all (\x -> elem x (map fst fs)) (map fst es)) 
-        then throwError $ Err "Not all labels were in type" 
+        then throwError $ Err "Not all case labels were in type" 
         else 
           let vEnvs = map (: vEnv) (zip (map fst (map snd es)) (map snd fs)) in
             let ts = zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) in
@@ -117,57 +166,30 @@ check vEnv tEnv (ECase e es) = do
                         x : _ -> throwError x
                 x : _ -> throwError x
     _ -> throwError $ Err "Not a variant type"
-check vEnv tEnv (EFix e) = do
-  t <- check vEnv tEnv e
-  case t of
-    TArr i o -> typeEquality i o
-    _ -> throwError $ Err "Not an arrow type"
 check vEnv tEnv (EFold t) = do
   case t of
     TRec s nt -> return $ TArr nt t
-    _         -> throwError $ Err "Not a recursive type"
+    _         -> throwError $ Err "Fold attempted on non recursive type"
 check vEnv tEnv (EUnfold t) = do
   case t of
     TRec s nt -> return $ TArr t (TRec s (substTypeVari s t nt))
-    _         -> throwError $ Err "Not a recursive type"
+    _         -> throwError $ Err "Unfold attempted on non recursive type"
 check vEnv tEnv (EData s t) = 
   case t of
     TRec s' nt | s == s' -> return $ TRec s nt
                | otherwise -> throwError $ Err "Data labels not matching"
-    _                      -> throwError $ Err "Not a recursive type"
+    _                      -> throwError $ Err "Not a recursive types"
 check vEnv tEnv (ELetFun s t e) = do
   at <- check vEnv tEnv e
   typeEquality at t
-check _ _ _ = throwError $ Err "Not a valid expression"
 
 checkSym :: Env -> Sym -> Either TypeError Type
 checkSym []            name = throwError $ Err (name ++ " not found")
 checkSym ((l, t) : es) name | l == name = return t
                             | otherwise = checkSym es name
 
-substRecType :: Sym -> Type -> Type
-substRecType s (TArr  t1 t2) = TArr  (substRecType s t1) (substRecType s t2)
-substRecType s (TProd t1 t2) = TProd (substRecType s t1) (substRecType s t2)
-substRecType s (TTuple   ts) = TTuple $ map (substRecType s) ts
-substRecType s (TRecord  ts) = TRecord $ zip (fst $ unzip ts) (map (substRecType s) (snd $ unzip ts))
-substRecType s (TVari    ts) = TVari   $ zip (fst $ unzip ts) (map (substRecType s) (snd $ unzip ts))
-substRecType s (TRec  s'  t) | s == s'   = TTypeVar s
-                             | otherwise = TRec s' (substRecType s t)
-substRecType _ a = a
-
-findTypeVars :: Type -> [Sym] -> [Sym]
-findTypeVars (TArr  t1 t2) ss = findTypeVars t1 ss ++ findTypeVars t2 ss
-findTypeVars (TProd t1 t2) ss = findTypeVars t1 ss ++ findTypeVars t2 ss
-findTypeVars (TTuple   ts) ss = concat $ map (\x -> findTypeVars x ss) ts
-findTypeVars (TRecord  ts) ss = concat $ map (\x -> findTypeVars x ss) (snd $ unzip ts)
-findTypeVars (TVari    ts) ss = concat $ map (\x -> findTypeVars x ss) (snd $ unzip ts)
-findTypeVars (TRec  s   t) ss = findTypeVars t (s : ss)
-findTypeVars (TTypeVar  s) ss = if elem s ss then [] else [s]
-findTypeVars _ _ = []
-
 substTypeVari :: Sym -> Type -> Type -> Type
 substTypeVari s t (TArr  t1 t2) = TArr    (substTypeVari s t t1) (substTypeVari s t t2)
-substTypeVari s t (TProd t1 t2) = TProd   (substTypeVari s t t1) (substTypeVari s t t2)
 substTypeVari s t (TTuple   ts) = TTuple  (map (substTypeVari s t) ts)
 substTypeVari s t (TRecord  ts) = TRecord $ zip (fst $ unzip ts) (map (substTypeVari s t) (snd $ unzip ts))
 substTypeVari s t (TVari    ts) = TVari   $ zip (fst $ unzip ts) (map (substTypeVari s t) (snd $ unzip ts))
@@ -188,8 +210,6 @@ buildRootEnv (x : xs) = case buildRootEnv xs of
                               _             -> throwError $ Err "Not a valid root type"
                           Left  e -> throwError e
 
-                        
-
 checkRoot :: Expr -> Either TypeError [Type]
 checkRoot (ERoot es) = case buildRootEnv es of
                          Right l -> 
@@ -197,5 +217,5 @@ checkRoot (ERoot es) = case buildRootEnv es of
                             case lefts $ ts of
                               []    -> return $ rights ts
                               e : _ -> throwError e
-                         Left  e -> throwError e
+                         Left  e -> throwError e-}
 
