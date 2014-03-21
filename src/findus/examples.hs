@@ -4,54 +4,68 @@ import Findus
 import TypeChecker
 
 -- Root Example
-root = ERoot [letShrink, letNatPred, dataNat, dataNatList, letStupidNat1, letStupidNat2, letInfRec, letNatPlus]
-checkRootEx = checkRoot root
-
+rootEnv = case buildRootEnv root of
+            Right(l) -> l
+root = [dataNat, dataNatList, letEmpty] -- letShrink, letNatPred, dataNat, dataNatList, letStupidNat1, letStupidNat2, letInfRec, letNatPlus, 
+rootExpr = ERoot root
+checkRootEx = checkRoot rootExpr
+listOfRootEx = case checkRootEx of
+                 Right(k) -> k
+                 Left(_) -> []
 -- Natural numbers
 natBody = TVari [
-            ("Z", TUnit), 
-            ("S", TTypeVar "Nat")
+            ("Z", []), 
+            ("S", [TRecTypeVar "nat"])
           ]
 
-dataNat = EData "Nat" nat
-nat = TRec "Nat" (natBody)
+dataNat = EData "nat" nat
+nat = TRec "nat" (natBody)
 
 -- Functions on Nats
-letNatPlus = ELetFun "plus" (TArr (nat) (TArr nat nat)) natPlus
-natPlus = ELam "m" nat (
-            ELam "n" nat (
-              ECase (EApp (EUnfold nat) (EVar "n")) [
-                ("Z", ("()", EVar "m")),
-                ("S", ("n'", EApp (EApp (EVar "plus") (EVar "n'")) (EVar "m")))
+letNatPlus = ELetFun "plus" (TArr (TGlobTypeVar "nat") (TArr (TGlobTypeVar "nat") (TGlobTypeVar "nat"))) natPlus
+natPlus = ELam "m" (TGlobTypeVar "nat") (
+            ELam "n" (TGlobTypeVar "nat") (
+              ECase (EApp (EUnfold (TGlobTypeVar "nat")) (EVar "n")) [
+                ("Z", ([], EVar "m")),
+                ("S", (["n'"], EApp (EApp (EVar "plus") (EVar "n'")) (EVar "m")))
               ]
             )
           )
 
-letNatPred = ELetFun "pred" (TArr nat nat) natPred
-natPred = ELam "n" nat (
-            ECase (EApp (EUnfold nat) (EVar "n")) [
-              ("Z", ("()", EApp (EFold nat) (ETag "Z" EUnit natBody))),
-              ("S", ("n'", EVar "n'"))
+letNatPred = ELetFun "pred" (TArr (TGlobTypeVar "nat") (TGlobTypeVar "nat")) natPred
+natPred = ELam "n" (TGlobTypeVar "nat") (
+            ECase (EApp (EUnfold (TGlobTypeVar "nat")) (EVar "n")) [
+              ("Z", ([], EApp (EFold (TGlobTypeVar "nat")) (ETag "Z" [] natBody))),
+              ("S", (["n'"], EVar "n'"))
             ]
           )
 
 -- List of natural numbers
 natListBody = TVari [
-                ("nil", TUnit),
-                ("cons", TTuple [nat, (TTypeVar "NatList")])
+                ("nil", []),
+                ("cons", [(TGlobTypeVar "nat"), (TRecTypeVar "natList")])
               ]
 
-dataNatList = EData "NatList" natList
-natList = TRec "NatList" (natListBody)
+dataNatList = EData "natList" natList
+natList = TRec "natList" (natListBody)
 
 -- Functions on List of natural numbers
-letShrink = ELetFun "shrink" (TArr natList natList) shrink
-shrink = ELam "xs" natList (
-          ECase (EApp (EUnfold natList) (EVar "xs")) [
-            ("nil" , ("[]", (EApp (EFold natList) (ETag "nil" EUnit natListBody)))),
-            ("cons", ("x:xs", ETupProj (EVar "x:xs") (ELit (LInt 1)))) 
+letShrink = ELetFun "shrink" (TArr (TGlobTypeVar "natList") (TGlobTypeVar "natList")) shrink
+shrink = ELam "xs" (TGlobTypeVar "natList") (
+          ECase (EApp (EUnfold (TGlobTypeVar "natList")) (EVar "xs")) [
+            ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) (ETag "nil" [] natListBody)))),
+            ("cons", (["y", "ys"], (EVar "ys"))) 
           ]
         )
+
+letEmpty = ELetFun "letEmpty" (TArr (TGlobTypeVar "natList") (TGlobTypeVar "natList")) empty
+empty = ELetRec "empty" (TArr (TGlobTypeVar "natList") (TGlobTypeVar "natList")) (ELam "xs" (TGlobTypeVar "natList") (
+          ECase (EApp (EUnfold (TGlobTypeVar "natList")) (EVar "xs")) [
+            ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) (ETag "nil" [] natListBody)))),
+            ("cons", (["y", "ys"], EApp (EVar "empty") (EVar "ys"))) 
+          ]
+        )
+      ) (ELam "xs" (TGlobTypeVar "natList") (EApp (EVar "empty") (EVar "xs")))
 
 -- Misc
 letStupidNat1 = ELetFun "stupid1" (TArr nat nat) stupid1

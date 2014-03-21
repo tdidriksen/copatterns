@@ -15,13 +15,14 @@ data Expr
   | ETupProj Expr Expr
   | ERecord [(Sym, Expr)]
   | ERecordProj Expr Sym
-  | ECase Expr [(Sym, (Sym, Expr))]
-  | ETag Sym Expr Type 
+  | ECase Expr [(Sym, ([Sym], Expr))]
+  | ETag Sym [Expr] Type 
   | EFold Type
   | EUnfold Type
   | ERoot [Expr]
   | EData Sym Type
   | ELetFun Sym Type Expr
+  | ELetRec Sym Type Expr Expr
   deriving (Eq, Show)
 
 data Lit
@@ -38,7 +39,34 @@ data Type
   | TArr Type Type
   | TTuple [Type]
   | TRecord [(Sym, Type)]
-  | TVari [(Sym, Type)]
+  | TVari [(Sym, [Type])]
   | TRec Sym Type
-  | TTypeVar Sym
-  deriving (Eq, Show)
+  | TRecTypeVar Sym
+  | TGlobTypeVar Sym
+  deriving (Eq)
+
+instance Show Type where
+  show TUnit = "Unit"
+  show TInt = "Int"
+  show TBool = "Bool"
+  show TString = "String"
+  show (TArr t1 t2) = (show t1) ++ " -> " ++ (show t2)
+  show (TTuple ts) = "Tuple " ++ (showListOf ts)
+  show (TRecord ts) = "Record " ++ (showListOf ts)
+  show (TVari ts) = "Variant " ++ (showListOf ts)
+  show (TRec s t) = s ++ ": (" ++ (show t) ++ ")"
+  show (TRecTypeVar s) = "RecTypeVar " ++ s
+  show (TGlobTypeVar s) = "GlobalTypeVar " ++ s
+
+showEnv :: [(Sym, Type)] -> String
+showEnv [] = ""
+showEnv (x : xs) = (fst x) ++ " : " ++ (show $ snd x) ++ "\n" ++ (showEnv xs)
+
+showListOf :: Show a => [a] -> String
+showListOf [] = "[]"
+showListOf x = "[" ++ showListOf' x
+
+showListOf' :: Show a => [a] -> String
+showListOf' [] = "]"
+showListOf' (x : []) = (show x) ++ "]"
+showListOf' (x : xs) = (show x) ++ showListOf' xs
