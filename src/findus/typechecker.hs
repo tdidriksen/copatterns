@@ -11,8 +11,8 @@ import Data.Graph.Inductive.Query.Monad
 data TypedExpr
   = TEUnit       Type
   | TEVar        Type Sym
-  | TELam        Type Sym Type TypedExpr
-  | TEApp        Type TypedExpr TypedExpr
+  | TEFun        Type Sym [(Sym, Type)] TypedExpr
+  | TEApp        Type TypedExpr [TypedExpr]
   | TELit        Type Lit
   | TELet        Type Sym TypedExpr TypedExpr
   | TEIf         Type TypedExpr TypedExpr TypedExpr
@@ -25,14 +25,13 @@ data TypedExpr
   | TEFold       Type Type
   | TEUnfold     Type Type
   | TEData       Type Sym
-  | TELetFun     Type Sym TypedExpr
-  | TELetRec     Type Sym TypedExpr TypedExpr
+  | TEGlobLet    Type Sym TypedExpr
   deriving (Eq, Show)
 
 getTypeAnno :: TypedExpr -> Type
 getTypeAnno (TEUnit       t      ) = t
 getTypeAnno (TEVar        t _    ) = t
-getTypeAnno (TELam        t _ _ _) = t
+getTypeAnno (TEFun        t _ _ _) = t
 getTypeAnno (TEApp        t _ _  ) = t
 getTypeAnno (TELit        t _    ) = t
 getTypeAnno (TELet        t _ _ _) = t
@@ -46,13 +45,13 @@ getTypeAnno (TETag        t _ _  ) = t
 getTypeAnno (TEFold       t _    ) = t
 getTypeAnno (TEUnfold     t _    ) = t
 getTypeAnno (TEData       t _    ) = t
-getTypeAnno (TELetFun     t _ _  ) = t
-getTypeAnno (TELetRec     t _ _ _) = t
+getTypeAnno (TEGlobLet    t _ _  ) = t
 
 data TypeError = Err String deriving Show
 
 instance Error TypeError where
   noMsg = Err ""
+{-
 
 typeVarLookup :: Sym -> Env -> Either TypeError Type
 typeVarLookup s env = case lookup s env of
@@ -60,15 +59,8 @@ typeVarLookup s env = case lookup s env of
                        Nothing -> throwError $ Err ("Data Type " ++ s  ++ " not found") 
 
 typeEquality :: Type -> Type -> Env -> Either TypeError Type
-typeEquality t1 t2 env | t1 == t2 = return t1
-                       | otherwise = case (t1, t2) of
-                          (TGlobTypeVar s, t2) -> do
-                              t1 <- typeVarLookup s env
-                              typeEquality t1 t2 env
-                          (t1, TGlobTypeVar s) -> do
-                              t2 <- typeVarLookup s env
-                              typeEquality t1 t2 env
-                          (_, _) -> throwError $ Err ("Type mismatch: " ++ (show t1 ) ++ " is not a " ++ (show t2))
+typeEquality t1 t2 env | (globTypeSubst env t1) == (globTypeSubst env t2) = return t1
+                       | otherwise = throwError $ Err ("Type mismatch: " ++ (show (globTypeSubst env t1) ) ++ " is not a " ++ ( show (globTypeSubst env t2)))
 
 listTypeEquality :: [Type] -> [Type] -> Env -> Either TypeError [Type]
 listTypeEquality (x : xs) (y : ys) env = do
@@ -86,9 +78,11 @@ check _ _ (ELit (LString s)) = return $ TELit TString (LString s)
 check vEnv tEnv (EVar x) = case (lookup x vEnv) of
   Just e  -> return $ TEVar e x
   Nothing -> throwError $ Err (x ++ " not in scope")
-check vEnv tEnv (ELam x t e) = do
-  rhs <- (check ((x,t) : vEnv) tEnv e)
-  return $ TELam (TArr t (getTypeAnno rhs)) x t rhs 
+check vEnv tEnv (EFun s t ts e) = do
+  rhs <- (check (ts ++ vEnv) tEnv e)
+  case t of
+    TArr ()
+  return $ TEFun (TArr t (getTypeAnno rhs)) ts rhs 
 check vEnv tEnv (EApp e1 e2) = do
   te1 <- check vEnv tEnv e1
   te2 <- check vEnv tEnv e2
@@ -170,10 +164,12 @@ check vEnv tEnv (ECase e es) = do
             else 
               let vEnvs = map (: vEnv) (zip (concat (map fst (map snd es))) (concat (map snd fs))) in
                 let ts = zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) in
+                  case rights $ map (pure (getTypeAnno) <*>) of
+                    [] -> throwError $ Err "No valid cases"
+                    t : ts -> 
                   case lefts ts of
                     []    -> 
                       case rights ts of
-                        [] -> throwError $ Err "No cases"
                         t : ts -> 
                           case lefts $ map (\t2 -> typeEquality (getTypeAnno t) t2 tEnv) (map getTypeAnno ts) of
                             [] -> return $ TECase (getTypeAnno t) te (zip (map fst es) (zip (map fst (map snd es)) (t : ts)))
@@ -244,7 +240,7 @@ globTypeSubst env (TRecord ts)     = TRecord $ listMapSnd (globTypeSubst env) ts
 globTypeSubst env (TVari ts)       = TVari $ listMapSnd (map $ globTypeSubst env) ts
 globTypeSubst env (TRec s t)       = TRec s (globTypeSubst env t)
 globTypeSubst env (TGlobTypeVar s) = case lookup s env of
-                                           Just(t) -> t
+                                           Just(t) -> globTypeSubst env t
                                            _ -> TGlobTypeVar "not found"
 globTypeSubst _ a = a
 
@@ -284,3 +280,4 @@ checkRoot (ERoot es) = case buildRootEnv es of
                               []    -> return $ rights ts
                               e : _ -> throwError e
                          Left  e -> throwError e 
+-}

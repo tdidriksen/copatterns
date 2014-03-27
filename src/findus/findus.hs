@@ -6,8 +6,8 @@ type Env = [(Sym, Type)]
 data Expr 
   = EUnit
   | EVar Sym
-  | ELam Sym Type Expr
-  | EApp Expr Expr
+  | EFun Sym Type [(Sym, Type)] Expr
+  | EApp Expr [Expr]
   | ELit Lit
   | ELet Sym Expr Expr
   | EIf Expr Expr Expr
@@ -21,8 +21,7 @@ data Expr
   | EUnfold Type
   | ERoot [Expr]
   | EData Sym Type
-  | ELetFun Sym Type Expr
-  | ELetRec Sym Type Expr Expr
+  | EGlobLet Sym Type Expr
   deriving (Eq, Show)
 
 data Lit
@@ -58,10 +57,6 @@ instance Show Type where
   show (TRecTypeVar s) = "RecTypeVar " ++ s
   show (TGlobTypeVar s) = "GlobalTypeVar " ++ s
 
-showEnv :: [(Sym, Type)] -> String
-showEnv [] = ""
-showEnv (x : xs) = (fst x) ++ " : " ++ (show $ snd x) ++ "\n" ++ (showEnv xs)
-
 showListOf :: Show a => [a] -> String
 showListOf [] = "[]"
 showListOf x = "[" ++ showListOf' x
@@ -69,4 +64,4 @@ showListOf x = "[" ++ showListOf' x
 showListOf' :: Show a => [a] -> String
 showListOf' [] = "]"
 showListOf' (x : []) = (show x) ++ "]"
-showListOf' (x : xs) = (show x) ++ showListOf' xs
+showListOf' (x : xs) = (show x) ++ ", " ++ showListOf' xs
