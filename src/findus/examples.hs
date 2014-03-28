@@ -6,12 +6,13 @@ import TypeChecker
 -- Root Example
 rootEnv = case buildRootEnv root of
             Right(l) -> l
-root = [dataNat, dataNatList, letEmpty] -- letShrink, letNatPred, dataNat, dataNatList, letStupidNat1, letStupidNat2, letInfRec, letNatPlus, 
+root = [dataNatList, letEmpty, letShrink, letNatPred, letStupid1, letStupid2, letInfRec, letNatPlus, dataNat]
 rootExpr = ERoot root
 checkRootEx = checkRoot rootExpr
 listOfRootEx = case checkRootEx of
                  Right(k) -> k
                  Left(_) -> []
+
 -- Natural numbers
 natBody = TVari [
             ("Z", []), 
@@ -22,23 +23,17 @@ dataNat = EData "nat" nat
 nat = TRec "nat" (natBody)
 
 -- Functions on Nats
-letNatPlus = ELetFun "plus" (TArr (TGlobTypeVar "nat") (TArr (TGlobTypeVar "nat") (TGlobTypeVar "nat"))) natPlus
-natPlus = ELam "m" (TGlobTypeVar "nat") (
-            ELam "n" (TGlobTypeVar "nat") (
-              ECase (EApp (EUnfold (TGlobTypeVar "nat")) (EVar "n")) [
-                ("Z", ([], EVar "m")),
-                ("S", (["n'"], EApp (EApp (EVar "plus") (EVar "n'")) (EVar "m")))
-              ]
-            )
-          )
+letNatPlus = EGlobLet "plus" (TArr [TGlobTypeVar "nat", TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just ([("n", TGlobTypeVar "nat"), ("m", TGlobTypeVar "nat")])) natPlus
+natPlus = ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "n")]) [
+            ("Z", ([], EVar "m")),
+            ("S", (["n'"], EApp (EApp (EVar "plus") [(EVar "n'")]) [(EVar "m")]))
+          ]
 
-letNatPred = ELetFun "pred" (TArr (TGlobTypeVar "nat") (TGlobTypeVar "nat")) natPred
-natPred = ELam "n" (TGlobTypeVar "nat") (
-            ECase (EApp (EUnfold (TGlobTypeVar "nat")) (EVar "n")) [
-              ("Z", ([], EApp (EFold (TGlobTypeVar "nat")) (ETag "Z" [] natBody))),
-              ("S", (["n'"], EVar "n'"))
-            ]
-          )
+letNatPred = EGlobLet "pred" (TArr [TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just [("n", TGlobTypeVar "nat")]) natPred
+natPred = ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "n")]) [
+            ("Z", ([], EApp (EFold (TGlobTypeVar "nat")) [(ETag "Z" [] natBody)])),
+            ("S", (["n'"], EVar "n'"))
+          ]
 
 -- List of natural numbers
 natListBody = TVari [
@@ -50,30 +45,24 @@ dataNatList = EData "natList" natList
 natList = TRec "natList" (natListBody)
 
 -- Functions on List of natural numbers
-letShrink = ELetFun "shrink" (TArr (TGlobTypeVar "natList") (TGlobTypeVar "natList")) shrink
-shrink = ELam "xs" (TGlobTypeVar "natList") (
-          ECase (EApp (EUnfold (TGlobTypeVar "natList")) (EVar "xs")) [
-            ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) (ETag "nil" [] natListBody)))),
-            ("cons", (["y", "ys"], (EVar "ys"))) 
-          ]
-        )
+letShrink = EGlobLet "shrink" (TArr [TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("xs", TGlobTypeVar "natList")])shrink
+shrink = ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "xs")]) [
+          ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) [(ETag "nil" [] natListBody)]))),
+          ("cons", (["y", "ys"], (EVar "ys"))) 
+        ]
 
-letEmpty = ELetFun "letEmpty" (TArr (TGlobTypeVar "natList") (TGlobTypeVar "natList")) empty
-empty = ELetRec "empty" (TArr (TGlobTypeVar "natList") (TGlobTypeVar "natList")) (ELam "xs" (TGlobTypeVar "natList") (
-          ECase (EApp (EUnfold (TGlobTypeVar "natList")) (EVar "xs")) [
-            ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) (ETag "nil" [] natListBody)))),
-            ("cons", (["y", "ys"], EApp (EVar "empty") (EVar "ys"))) 
-          ]
-        )
-      ) (ELam "xs" (TGlobTypeVar "natList") (EApp (EVar "empty") (EVar "xs")))
+letEmpty = EGlobLet "empty" (TArr [TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("xs", TGlobTypeVar "natList")]) empty
+empty = ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "xs")]) [
+          ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) [(ETag "nil" [] natListBody)]))),
+          ("cons", (["y", "ys"], EApp (EVar "empty") [(EVar "ys")])) 
+        ]
 
 -- Misc
-letStupidNat1 = ELetFun "stupid1" (TArr nat nat) stupid1
-stupid1 = ELam "x" nat (EApp (EVar "stupid2") (EVar "x"))
+letStupid1 = EGlobLet "stupid1" (TArr [nat] nat) (Just [("x", nat)]) stupid1
+stupid1 = EApp (EVar "stupid2") [(EVar "x")]
 
+letStupid2 = EGlobLet "stupid2" (TArr [nat] nat) (Just [("x", nat)]) stupid2
+stupid2 = EApp (EVar "stupid1") [(EVar "x")]
 
-letStupidNat2 = ELetFun "stupid2" (TArr nat nat) stupid2
-stupid2 = ELam "x" nat (EApp (EVar "stupid1") (EVar "x"))
-
-letInfRec = ELetFun "infrec" (TArr nat nat) infRec
-infRec = ELam "x" nat (EApp (EVar "infrec") (EVar "x"))
+letInfRec = EGlobLet "infrec" (TArr [nat] nat) (Just [("x", nat)]) infRec
+infRec = EApp (EVar "infrec") [(EVar "x")]

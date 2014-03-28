@@ -71,7 +71,11 @@ listTypeEquality _ _ env = throwError $ Err "Type mismatch"
 
 isNotArrowType :: Type -> Either TypeError Type
 isNotArrowType (TArr _ _) = throwError $ Err "Found unexpected arrow type"
-isNotArrowType t = return t
+isNotArrowType t          = return t
+
+maybeAppend :: Maybe [a] -> [a] -> [a]
+maybeAppend (Just xs) ys = xs ++ ys
+maybeAPpend Nothing   ys =       ys
 
 check :: Env -> Env -> Expr -> Either TypeError TypedExpr
 check _ _ EUnit              = return $ TEUnit TUnit
@@ -91,14 +95,12 @@ check vEnv tEnv (EApp e1 e2) = do
                         Left x  -> throwError x
         _ -> throwError $ Err "Application on non arrow type"
     Left err -> throwError err
-{-}    
 check vEnv tEnv (ELet s t ps e1 e2) = do
-  case ps of
-    Some(ps) -> return TEUnit TUnit
-    Nothing  -> do
-
-
-
+    te1 <- check ((s,t) : (maybeAppend ps vEnv)) tEnv e1
+    te2 <- check ((s,t) : vEnv) tEnv e2
+    case typeEquality t (getTypeAnno te1) tEnv of
+      Right _ -> return $ TELet t s Nothing te1 te2
+      Left err -> throwError err
 check vEnv tEnv (EIf c b1 b2) = do
   ct <- check vEnv tEnv c
   case getTypeAnno ct of  
@@ -146,12 +148,12 @@ check vEnv tEnv (ETag s e t) = do
       case lookup s fs of
         Just et -> do
           let te = map (check vEnv tEnv) e in
-            case lefts te of
-              []     ->
-                case listTypeEquality (map getTypeAnno (rights te)) et tEnv of
-                  Right _ -> return $ TETag t s (rights te)
+            case eitherUnzip te of
+              Right te ->
+                case listTypeEquality (map getTypeAnno te) et tEnv of
+                  Right _ -> return $ TETag t s te
                   Left  x -> throwError x
-              x : _  -> throwError x
+              Left err -> throwError err
         Nothing -> throwError $ Err "Label not found in variant type"
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
@@ -167,15 +169,12 @@ check vEnv tEnv (ECase e es) = do
             then throwError $ Err "Not all case labels were in type" 
             else 
               let vEnvs = map (: vEnv) (zip (concat (map fst (map snd es))) (concat (map snd fs))) in
-                let ts = zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) in
-                  case lefts ts of
-                    []    -> 
-                      case rights ts of
-                        t : ts -> 
-                          case lefts $ map (\t2 -> typeEquality (getTypeAnno t) t2 tEnv) (map getTypeAnno ts) of
-                            [] -> return $ TECase (getTypeAnno t) te (zip (map fst es) (zip (map fst (map snd es)) (t : ts)))
-                            x : _ -> throwError x
-                    x : _ -> throwError x
+                case eitherUnzip $ zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) of
+                  Right(t : ts) -> 
+                    case eitherUnzip $ map (\t2 -> typeEquality (getTypeAnno t) t2 tEnv) (map getTypeAnno ts) of
+                      Right _ -> return $ TECase (getTypeAnno t) te (zip (map fst es) (zip (map fst (map snd es)) (t : ts)))
+                      Left err -> throwError err
+                  Left err -> throwError err
         _ -> throwError $ Err "Not a variant type"
     _ -> throwError $ Err "Expected recursive type in case"
 check vEnv tEnv (EFold t) = do
@@ -200,13 +199,22 @@ check vEnv tEnv (EData s t) =
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (EData s t)
     _                    -> throwError $ Err "Not a recursive types"
-check vEnv tEnv (EGlobLet s t e) = do
-  te <- check vEnv tEnv e
-  case typeEquality (getTypeAnno te) t tEnv of
-    Right _ -> return $ TEGlobLet t s te
-    Left _  -> throwError $ Err ("Annotated type " ++ (show t) ++ " does not match actual type " ++ (show $ getTypeAnno te) ++ " of function " ++ s)
+check vEnv tEnv (EGlobLet s t ps e) = do
+  te <- check (maybeAppend ps vEnv) tEnv e
+  case ps of
+    Just ps ->
+      case t of
+        TArr a r -> 
+          if not (a == (map snd ps)) then throwError $ Err "Not the right number of arguments" 
+          else case typeEquality r (getTypeAnno te) tEnv of
+            Right  _ -> return $ TEGlobLet (TArr a r) s (Just ps) te
+            Left err -> throwError err
+        _ -> throwError $ Err "Arrow type expected"
+    Nothing ->
+      case typeEquality (getTypeAnno te) t tEnv of
+        Right _ -> return $ TEGlobLet t s ps te
+        Left _  -> throwError $ Err ("Annotated type " ++ (show t) ++ " does not match actual type " ++ (show $ getTypeAnno te) ++ " of function " ++ s)
 check _ _ _ = throwError $ Err "Not a valid expression"
--}
 
 listMapFst :: (a -> c) -> [(a, b)] -> [(c, b)]
 listMapFst f p = zip (map f (fst $ unzip p)) (snd $ unzip p)
@@ -250,7 +258,7 @@ globTypeSubst _ a = a
 
 globTypeInExprSubst :: Env -> Expr -> Expr
 globTypeInExprSubst env (EApp e1 e2) = EApp (globTypeInExprSubst env e1) (map (globTypeInExprSubst env) e2)
---globTypeInExprSubst env (ELet s t ps e1 e2) = ELet s (globTypeSubst env t) (fmap (listMapSnd (globTypeSubst env) ps)) (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
+globTypeInExprSubst env (ELet s t ps e1 e2) = ELet s (globTypeSubst env t) (listMapSnd (globTypeSubst env) <$> ps) (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
 globTypeInExprSubst env (EIf c e1 e2) = EIf (globTypeInExprSubst env c) (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
 globTypeInExprSubst env (ETuple es) = ETuple (map (globTypeInExprSubst env) es)
 globTypeInExprSubst env (ETupProj e1 e2) = ETupProj (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
@@ -262,7 +270,7 @@ globTypeInExprSubst env (EFold t) = EFold (globTypeSubst env t)
 globTypeInExprSubst env (EUnfold t) = EUnfold (globTypeSubst env t)
 globTypeInExprSubst env (ERoot es) = ERoot (map (globTypeInExprSubst env) es)
 globTypeInExprSubst env (EData s t) = EData s (globTypeSubst env t)
---globTypeInExprSubst env (EGlobLet ts e) = EGlobLet (listMapSnd (globTypeSubst env) ts) (globTypeInExprSubst env e)
+globTypeInExprSubst env (EGlobLet s t ps e) = EGlobLet s (globTypeSubst env t) (listMapSnd (globTypeSubst env) <$> ps) (globTypeInExprSubst env e)
 globTypeInExprSubst _ a = a
  
 buildRootEnv :: [Expr] -> Either TypeError (Env, Env)
@@ -279,7 +287,7 @@ checkRoot :: Expr -> Either TypeError [TypedExpr]
 checkRoot (ERoot es) = case buildRootEnv es of
                          Right l -> 
                           let ts = map (check (fst l) (snd l)) es in 
-                            case lefts $ ts of
-                              []    -> return $ rights ts
-                              e : _ -> throwError e
-                         Left  e -> throwError e 
+                            case eitherUnzip $ ts of
+                              Right ts -> return ts
+                              Left err -> throwError err
+                         Left err -> throwError err

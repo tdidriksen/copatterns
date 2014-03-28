@@ -49,19 +49,19 @@ instance Show Type where
   show TInt = "Int"
   show TBool = "Bool"
   show TString = "String"
-  show (TArr t1 t2) = (show t1) ++ " -> " ++ (show t2)
-  show (TTuple ts) = "Tuple " ++ (showListOf ts)
-  show (TRecord ts) = "Record " ++ (showListOf ts)
-  show (TVari ts) = "Variant " ++ (showListOf ts)
+  show (TArr t1 t2) = (showListOf " -> " t1) ++ " -> " ++ (show t2)
+  show (TTuple ts) = "Tuple " ++ (showListOf ", " ts)
+  show (TRecord ts) = "Record " ++ (showListOf ", " ts)
+  show (TVari ts) = "Variant " ++ (showListOf ", " ts)
   show (TRec s t) = s ++ ": (" ++ (show t) ++ ")"
   show (TRecTypeVar s) = "RecTypeVar " ++ s
   show (TGlobTypeVar s) = "GlobalTypeVar " ++ s
 
-showListOf :: Show a => [a] -> String
-showListOf [] = "[]"
-showListOf x = "[" ++ showListOf' x
+showListOf :: Show a => String -> [a] -> String
+showListOf d [] = "[]"
+showListOf d x = "[" ++ showListOf' d x
 
-showListOf' :: Show a => [a] -> String
-showListOf' [] = "]"
-showListOf' (x : []) = (show x) ++ "]"
-showListOf' (x : xs) = (show x) ++ ", " ++ showListOf' xs
+showListOf' :: Show a => String -> [a] -> String
+showListOf' d [] = "]"
+showListOf' d (x : []) = (show x) ++ "]"
+showListOf' d (x : xs) = (show x) ++ d ++ showListOf' d xs
