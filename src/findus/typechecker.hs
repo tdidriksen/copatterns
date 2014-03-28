@@ -1,5 +1,3 @@
-{-# LANGUAGE FlexibleInstances #-}
-
 module TypeChecker where
 
 import Data.Either
@@ -14,7 +12,7 @@ data TypedExpr
   | TEVar        Type Sym
   | TEApp        Type TypedExpr [TypedExpr]
   | TELit        Type Lit
-  | TELet        Type Sym (Maybe Params) TypedExpr TypedExpr
+  | TELet        Type Sym Type (Maybe Params) TypedExpr TypedExpr
   | TEIf         Type TypedExpr TypedExpr TypedExpr
   | TETuple      Type [TypedExpr]
   | TETupProj    Type TypedExpr TypedExpr
@@ -33,7 +31,7 @@ getTypeAnno (TEUnit       t      ) = t
 getTypeAnno (TEVar        t _    ) = t
 getTypeAnno (TEApp        t _ _  ) = t
 getTypeAnno (TELit        t _    ) = t
-getTypeAnno (TELet        t _ _ _ _) = t
+getTypeAnno (TELet        t _ _ _ _ _) = t
 getTypeAnno (TEIf         t _ _ _) = t
 getTypeAnno (TETuple      t _    ) = t
 getTypeAnno (TETupProj    t _ _  ) = t
@@ -99,7 +97,7 @@ check vEnv tEnv (ELet s t ps e1 e2) = do
     te1 <- check ((s,t) : (maybeAppend ps vEnv)) tEnv e1
     te2 <- check ((s,t) : vEnv) tEnv e2
     case typeEquality t (getTypeAnno te1) tEnv of
-      Right _ -> return $ TELet t s Nothing te1 te2
+      Right _ -> return $ TELet (getTypeAnno te2) s t ps te1 te2
       Left err -> throwError err
 check vEnv tEnv (EIf c b1 b2) = do
   ct <- check vEnv tEnv c
