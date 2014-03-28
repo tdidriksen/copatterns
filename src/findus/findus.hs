@@ -2,14 +2,14 @@ module Findus where
 
 type Sym = String 
 type Env = [(Sym, Type)]
+type Params = [(Sym, Type)]
 
 data Expr 
   = EUnit
   | EVar Sym
-  | EFun Sym Type [(Sym, Type)] Expr
   | EApp Expr [Expr]
   | ELit Lit
-  | ELet Sym Expr Expr
+  | ELet Sym Type (Maybe Params) Expr Expr
   | EIf Expr Expr Expr
   | ETuple [Expr]
   | ETupProj Expr Expr
@@ -21,7 +21,7 @@ data Expr
   | EUnfold Type
   | ERoot [Expr]
   | EData Sym Type
-  | EGlobLet Sym Type Expr
+  | EGlobLet Sym Type (Maybe Params) Expr
   deriving (Eq, Show)
 
 data Lit
@@ -35,7 +35,7 @@ data Type
   | TInt
   | TBool
   | TString
-  | TArr Type Type
+  | TArr [Type] Type
   | TTuple [Type]
   | TRecord [(Sym, Type)]
   | TVari [(Sym, [Type])]
