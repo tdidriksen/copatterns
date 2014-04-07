@@ -33,10 +33,20 @@ data Size =
   | C Size                 -- Constructor application. C (Param "x") > Param "x"
   | Unknown                -- When the size is unknown
   | Multiple [Size]        -- Non-deterministic choice. Used when a term can have several possible sizes.
-  | Alias Size Size        -- When one size might act as an alias for another. Mostly used for base cases.
+  | Deferred TypedExpr
   deriving Eq
 
-instance Ord Size where
+type Alias = (Size, Size)
+withAlias :: Size -> Alias -> Size
+withAlias Min       (Min, s)     = s
+withAlias (D s)     (D s', s'')  = s `withAlias` (s', s'')
+withAlias (Param x) (Param y, s) = if x == y then s else Param x
+withAlias (Var x)   (Var y, s)   = if x == y then s else Var x
+withAlias (C s)     (C s', s'')  = s `withAlias` (s', s'')
+withAlias (Multiple ss) (s, s')  = Multiple $ map (\t -> t `withAlias` (s, s')) ss
+withAlias s _ = s
+
+instance Ord Size where -- TODO: Compare skal give mening!
   -- Min
   compare Min       Min        = EQ
   compare Min       _          = LT
@@ -72,9 +82,6 @@ instance Ord Size where
   -- Multiple
   compare (Multiple ss) s'     = foldl1 compare (map (\s'' -> compare s'' s') ss)
   compare s     (Multiple ss') = foldl1 compare (map (compare s) ss')
-  -- Alias
-  compare (Alias s s') s''     = compare s' s''
-  compare s     (Alias s' s'') = compare s s''
   -- Catch-all
   compare _         _          = GT
 
@@ -187,6 +194,7 @@ isInfinitelyDescending x = False -- TODO
 -- All calls map arguments to data positions
 
 type DataEnv = [(Sym, DataPosition Size)]
+type Hints = [(TypedExpr, Sym)]
 
 
 paramsAsData :: Maybe Params -> [(Sym, DataPosition Size)]
@@ -204,39 +212,39 @@ dataEnv (Local _ parent env) = env ++ dataEnv parent
 
 -- If no local dataenv, then control point is value
 
-controlPointsFromExpr :: TypedExpr -> [ControlPoint a] -> [ControlPoint a]
-controlPointsFromExpr (TEVar f) cps =
-  case find (\cp -> f == controlPointId cp) cps of
-    Just cp = [cp]
-    Nothing = []
-controlPointsFromExpr _ _ = error "Bad control point"
+controlPointFromExpr :: TypedExpr -> [ControlPoint a] -> Maybe (ControlPoint a)
+controlPointFromExpr (TEVar _ f) cps = find (\cp -> f == controlPointId cp) cps
+controlPointFromExpr _ _ = Nothing
 
-controlFlowGraph :: ControlPoint DataEnv -> TypedExpr -> [(ControlPoint DataEnv, Maybe Size)] -> DataEnv -> [Call DataEnv (Substitution DataEnv)]
-controlFlowGraph f (TEApp _ (TEFold _ _) [tag@(TETag _ _ _)]) cps dataenv = controlFlowGraph f tag cps dataenv
-controlFlowGraph f (TEApp _ (TEUnfold _ _) [arg]) cps dataenv = controlFlowGraph f arg cps dataenv 
-controlFlowGraph f (TEApp _ g args) cps dataenv =
-  let calledFunctions = controlPointsFromExpr g $ map fst cps
-  in let calleeData cp = controlPointData cp
-  in 
-  in let call h = (f, zip (calleeData h) , h)
-controlFlowGraph f (TELet ty id exprty params expr body) cps dataenv =
+controlFlowGraph :: ControlPoint DataEnv -> TypedExpr -> [ControlPoint DataEnv] -> DataEnv -> Hints -> [Call DataEnv (Substitution Size)]
+controlFlowGraph f (TEApp _ (TEFold _ _) [tag@(TETag _ _ _)]) cps dataenv hints = controlFlowGraph f tag cps dataenv hints
+controlFlowGraph f (TEApp _ (TEUnfold _ _) [arg]) cps dataenv hints = controlFlowGraph f arg cps dataenv hints
+controlFlowGraph f (TEApp _ g args) cps dataenv hints =
+  let target = case controlPointFromExpr g cps of
+                 Just cp -> cp
+                 Nothing -> error "Called function does not exist"
+  in let targetData cp = map snd $ controlPointData cp
+  in let argPositions = map (\arg -> DataPos $ sizeOf arg f cps dataenv hints) args
+  in let call h = (f, zip (targetData h) argPositions, h)
+  in call target : (foldl (++) [] $ map (\arg -> controlFlowGraph f arg cps dataenv hints) args)
+controlFlowGraph f (TELet ty id exprty params expr body) cps dataenv hints =
   let paramData = paramsAsData params
   in let localDef = Local id f paramData
-  in let exprGraph = controlFlowGraph localDef expr ((localDef, Nothing) : cps) (paramData ++ dataenv)
-  in let exprSize = sizeOf expr (paramData ++ dataenv)
+  in let exprGraph = controlFlowGraph localDef expr (localDef : cps) (paramData ++ dataenv) hints
+  in let exprSize = sizeOf expr f cps (paramData ++ dataenv) hints
   in case exprGraph of
        [] -> case params of
-               Just ps -> controlFlowGraph f body ((localDef, exprSize) : cps) dataenv
-               Nothing -> controlFlowGraph f body cps ((id, DataPos exprSize) : dataenv)
-       eg -> eg ++ controlFlowGraph f body ((localDef, Nothing) : cps) dataenv 
-controlFlowGraph f (TEIf ty c tb fb) cps dataenv =
-  foldl (++) [] $ map (\e -> controlFlowGraph f e cps dataenv) [c, tb, fb]
-controlFlowGraph f (TETuple ty exprs) cps dataenv =
-  foldl (++) [] $ map (\e -> controlFlowGraph f e cps dataenv) exprs
-controlFlowGraph f (TERecord ty exprs) cps dataenv =
-  foldl (++) [] $ map (\(_, e) -> controlFlowGraph f e cps dataenv) exprs
-controlFlowGraph f (TECase ty expr cases) cps dataenv =
-  let exprSize = sizeOf expr dataenv
+               Just ps -> controlFlowGraph f body (localDef : cps) ((id, DataPos $ Deferred body) : dataenv) hints
+               Nothing -> controlFlowGraph f body cps ((id, DataPos exprSize) : dataenv) hints
+       eg -> eg ++ controlFlowGraph f body (localDef : cps) dataenv hints
+controlFlowGraph f (TEIf ty c tb fb) cps dataenv hints =
+  foldl (++) [] $ map (\e -> controlFlowGraph f e cps dataenv hints) [c, tb, fb]
+controlFlowGraph f (TETuple ty exprs) cps dataenv hints =
+  foldl (++) [] $ map (\e -> controlFlowGraph f e cps dataenv hints) exprs
+controlFlowGraph f (TERecord ty exprs) cps dataenv hints =
+  foldl (++) [] $ map (\(_, e) -> controlFlowGraph f e cps dataenv hints) exprs
+controlFlowGraph f (TECase ty expr cases) cps dataenv hints =
+  let exprSize = sizeOf expr f cps dataenv hints
   in let exprType = getTypeAnno expr
   in let variant = case exprType of
                      TVari ts          -> ts
@@ -248,44 +256,39 @@ controlFlowGraph f (TECase ty expr cases) cps dataenv =
   in let annotatedVars (id, (vars, _)) = zip vars (caseTypes id)
   in let isRecType = (== exprType)
   in let argEnv c = map (\(v, t) -> if isRecType t then (v, DataPos $ D exprSize) else (v, DataPos $ Var v)) (annotatedVars c)
-  in let isBaseCase c = null $ filter (\(v,t) -> isRecType t) (annotatedVars c) 
-  in let (baseCases, recCases) = partition isBaseCase cases
   in let caseExpr = snd . snd
-  in let baseGraph = map (\c -> controlFlowGraph f (caseExpr c) cps (("", DataPos $ Alias Min exprSize) : argEnv c ++ dataenv)) baseCases
-  in let recGraph = map (\c -> controlFlowGraph f (caseExpr c) cps (argEnv c ++ dataenv)) recCases
-  in foldl (++) [] $ baseGraph ++ recGraph
-controlFlowGraph f (TETag ty id args) cps dataenv = 
-  foldl (++) [] $ map (\arg -> controlFlowGraph f arg cps dataenv) args
-controlFlowGraph f@(Global id dataenv) (TEGlobLet _ id' _ body) cps []
-  | id == id' = controlFlowGraph f body cps dataenv
+  in let constructor = fst
+  in let caseGraphs = map (\c -> controlFlowGraph f (caseExpr c) cps (argEnv c ++ dataenv) ((expr, constructor c) : hints)) cases
+  in foldl (++) [] $ caseGraphs
+controlFlowGraph f (TETag ty id args) cps dataenv hints = 
+  foldl (++) [] $ map (\arg -> controlFlowGraph f arg cps dataenv hints) args
+controlFlowGraph f@(Global id dataenv) (TEGlobLet _ id' _ body) cps [] hints
+  | id == id' = controlFlowGraph f body cps dataenv hints
   | otherwise = []
-controlFlowGraph _ _ _ _ = []
+controlFlowGraph _ _ _ _ _ = []
 
 
-sizeOf :: TypedExpr -> DataEnv -> Size
-sizeOf (TEVar _ id) env =
+sizeOf :: TypedExpr -> ControlPoint DataEnv -> [ControlPoint DataEnv] -> DataEnv -> Hints -> Size
+sizeOf (TEVar _ id) f cps env hints =
   case lookup id env of
-    Just (DataPos st)          -> st
-    Nothing                    -> Unknown -- If we cannot say anything, we must assume the worst
-sizeOf (TEApp _ (TEFold _ _) [tag@(TETag _ _ _)]) env = sizeOf tag env
-sizeOf (TEApp _ (TEUnfold _ _) [arg]) env = sizeOf arg env
-sizeOf (TEApp _ _ _) env = Unknown
-sizeOf (TELet _ id _ p expr body) env =
+    Just (DataPos (Deferred e)) -> sizeOf e f cps env hints
+    Just (DataPos s)            -> s
+    Nothing                     -> Unknown
+sizeOf (TEApp _ (TEFold _ _) [tag@(TETag _ _ _)]) f cps env hints = sizeOf tag f cps env hints
+sizeOf (TEApp _ (TEUnfold _ _) [arg]) f cps env hints = sizeOf arg f cps env hints
+sizeOf (TEApp _ f args) cp cps env hints =
+  let target = case controlPointFromExpr f cps of
+                 Just cp -> cp
+                 Nothing -> error "Called function does not exist"
+  in let targetData = controlPointData target
+  in sizeOf f cp cps (zip (map fst targetData) (map (\arg -> DataPos $ sizeOf arg cp cps env hints) args) ++ env) hints
+sizeOf (TELet _ id _ p expr body) f cps env hints =
   let params = paramsAsData p
-  in let exprSize = sizeOf expr (params ++ env)
-  in sizeOf body ((id, DataPos exprSize) : env)
-sizeOf (TEIf _ c tb fb) env =
-  let trueBranchSize = sizeOf tb env
-  in let falseBranchSize = sizeOf fb env
-  in max trueBranchSize falseBranchSize
-sizeOf (TETuple _ exprs) env =
-  case exprs of
-    []  -> Unknown
-    [e] -> sizeOf e env
-    es  -> Multiple $ map (\e -> sizeOf e env) es
--- Tuple projection, records, record projection?
-sizeOf (TECase _ expr cases) env =
-  let exprSize = sizeOf expr env
+  in let localDef = Local id f params
+  in let exprSize = sizeOf expr localDef (localDef : cps) (params ++ env) hints
+  in sizeOf body f cps ((id, DataPos exprSize) : env) hints
+sizeOf (TECase _ expr cases) f cps env hints =
+  let exprSize = sizeOf expr f cps env hints
   in let exprType = getTypeAnno expr
   in let variant = case exprType of
                      TVari ts          -> ts
@@ -297,37 +300,33 @@ sizeOf (TECase _ expr cases) env =
   in let annoVars (id, (vars, _)) = zip vars (caseTypes id)
   in let isRecType = (== exprType)
   in let argEnv c = map (\(v, t) -> if isRecType t then (v, DataPos $ D exprSize) else (v, DataPos $ Var v)) (annoVars c)
+  in let constructor = fst
   in let caseExpr = snd . snd
-  in let recCaseSize c = sizeOf (caseExpr c) $ (argEnv c) ++ env
-  in let baseCaseSize c = sizeOf (caseExpr c) $ (("", DataPos $ Alias Min exprSize) : argEnv c) ++ env
-  in let isBaseCase c = null $ filter (\(v,t) -> isRecType t) (annoVars c)
+  in let baseCaseSize c = (sizeOf (caseExpr c) f cps ((argEnv c) ++ env) hints) `withAlias` (Min, exprSize)
+  in let recCaseSize c = sizeOf (caseExpr c) f cps ((argEnv c) ++ env) hints
+  in let isBaseCase c = all (\(v,t) -> not $ isRecType t) (annoVars c)
   in let (baseCases, recCases) = partition isBaseCase cases
   in let baseCaseSizes = map baseCaseSize baseCases
   in let recCaseSizes = map recCaseSize recCases
-  in let nonTrivialBaseSizes = filter (\s -> not $ s == exprSize) baseCaseSizes
-  in let caseSizes = nonTrivialBaseSizes ++ recCaseSizes
+  in let caseSizes = baseCaseSizes ++ recCaseSizes
   in let maxSize = if null caseSizes then Unknown else foldr1 max caseSizes -- Gør det mest konservative.
-  in maxSize
-sizeOf (TETag tagty id args) env =
+  in case lookup expr hints of
+       Just hint ->
+         case find (\c -> constructor c == hint) cases of
+           Just c -> if isBaseCase c then baseCaseSize c else recCaseSize c
+           Nothing -> maxSize
+       Nothing -> maxSize
+sizeOf (TETag tagty id args) f cps env hints =
   let hasTaggedType arg = case getTypeAnno arg of
                             vari@(TVari _) -> vari == tagty
                             TRec _ vari    -> vari == tagty
                             _              -> False
   in let sizeChangingArgs = filter hasTaggedType args
   in case sizeChangingArgs of
-       []    -> aliasedSize env Min
-       [arg] -> C (sizeOf arg env)
-       args  -> Multiple $ map (\arg -> C (sizeOf arg env)) args
- where
-  aliasedSize :: DataEnv -> Size -> Size
-  aliasedSize env s =
-    let isAliasFor size s = case size of
-                              Alias a b -> a == s
-                              _         -> False
-    in case find (\(v, DataPos size) -> null v && isAliasFor size s) env of
-         Just ("", DataPos (Alias a b)) -> b
-         _                              -> s
-sizeOf _ _ = Unknown
+       []    -> Min
+       [arg] -> C (sizeOf arg f cps env hints)
+       args  -> Multiple $ map (\arg -> C (sizeOf arg f cps env hints)) args
+sizeOf _ _ _ _ _ = Unknown
 
 
 -- controlFlowGraph :: [TypedExpr] -> [ControlPoint DataEnv] -> DataEnv -> ControlFlowGraph DataEnv
