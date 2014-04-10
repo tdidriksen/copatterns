@@ -1,17 +1,19 @@
 module Examples where
 
-import Findus
+import Expr
 import TypeChecker
+import Control.Applicative
 
 -- Root Example
 rootEnv = case buildRootEnv root of
             Right(l) -> l
-root = [dataNatList, letEmpty, letShrink, letNatPred, letStupid1, letStupid2, letInfRec, letNatPlus, dataNat]
+root = [codataNatStream, letFib, letNatPlus, letZipWithPlus, dataNatList, letEmpty, letShrink, letNatPred, letStupid1, letStupid2, letInfRec, dataNat]
 rootExpr = ERoot root
 checkRootEx = checkRoot rootExpr
 listOfRootEx = case checkRootEx of
                  Right(k) -> k
                  Left(_) -> []
+listOfTypes = pure (map getTypeAnno) <*> checkRootEx
 
 -- Natural numbers
 natBody = TVari [
@@ -20,7 +22,7 @@ natBody = TVari [
           ]
 
 dataNat = EData "nat" nat
-nat = TRec "nat" (natBody)
+nat = TRecInd "nat" (natBody)
 
 -- Functions on Nats
 letNatPlus = EGlobLet "plus" (TArr [TGlobTypeVar "nat", TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just ([("n", TGlobTypeVar "nat"), ("m", TGlobTypeVar "nat")])) natPlus
@@ -42,19 +44,58 @@ natListBody = TVari [
               ]
 
 dataNatList = EData "natList" natList
-natList = TRec "natList" (natListBody)
+natList = TRecInd "natList" (natListBody)
 
 -- Functions on List of natural numbers
-letShrink = EGlobLet "shrink" (TArr [TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("xs", TGlobTypeVar "natList")])shrink
+letShrink = EGlobLet "shrink" (TArr [TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("xs", TGlobTypeVar "natList")]) shrink
 shrink = ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "xs")]) [
           ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) [(ETag "nil" [] natListBody)]))),
           ("cons", (["y", "ys"], (EVar "ys"))) 
         ]
 
-letEmpty = EGlobLet "empty" (TArr [TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("xs", TGlobTypeVar "natList")]) empty
-empty = ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "xs")]) [
+letEmpty = EGlobLet "empty" (TArr [TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("xs", TGlobTypeVar "natList")]) emptyList
+emptyList = ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "xs")]) [
           ("nil", ([], (EApp (EFold (TGlobTypeVar "natList")) [(ETag "nil" [] natListBody)]))),
           ("cons", (["y", "ys"], EApp (EVar "empty") [(EVar "ys")])) 
+        ]
+
+-- Stream Nat
+natStreamBody = [
+                  ("head", TGlobTypeVar "nat"),
+                  ("tail", TRecTypeVar "natStream")
+                ]
+
+codataNatStream = ECodata "natStream" natStream
+natStream = TRecCoind "natStream" natStreamBody
+
+letZipWithPlus = EGlobLet "zipWithPlus" (TArr [(TGlobTypeVar "natStream"), (TGlobTypeVar "natStream")] (TGlobTypeVar "natStream")) (Just [("xs", (TGlobTypeVar "natStream")), ("ys", (TGlobTypeVar "natStream"))]) zipWithPlus
+zipWithPlus = EObserve (TGlobTypeVar "natStream")
+                [
+                  ("head", EApp (EVar "plus")[
+                      (EApp (EVar "head") [EVar "xs"]),
+                      (EApp (EVar "head") [EVar "ys"])
+                    ]),
+                  ("tail", EApp (EVar "zipWithPlus") [
+                      (EApp (EVar "tail") [EVar "xs"]),
+                      (EApp (EVar "tail") [EVar "ys"])
+                    ])
+                ]
+
+letFib = EGlobLet "fib" (TGlobTypeVar "natStream") Nothing fib
+fib = EObserve (TGlobTypeVar "natStream") 
+        [
+          ("head", natZ),
+          ("tail", EObserve (TGlobTypeVar "natStream")
+                     [
+                       ("head", EApp (EVar "S") [natZ]),
+                       ("tail", EApp (EVar "zipWithPlus") 
+                          [
+                            EVar "fib", 
+                            (EApp (EVar "tail") [EVar "fib"])
+                          ]
+                        )
+                     ]
+                  )
         ]
 
 -- Misc
@@ -66,3 +107,8 @@ stupid2 = EApp (EVar "stupid1") [(EVar "x")]
 
 letInfRec = EGlobLet "infrec" (TArr [nat] nat) (Just [("x", nat)]) infRec
 infRec = EApp (EVar "infrec") [(EVar "x")]
+
+
+-- Util
+
+natZ = EApp (EVar "Z") []

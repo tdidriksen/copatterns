@@ -4,25 +4,22 @@ import Data.Either
 import Control.Monad.Error
 import Control.Monad.Identity
 import Control.Applicative
-import Findus
+import Expr
 import Data.Graph.Inductive.Query.Monad
+import Data.List (sort)
 
 data TypedExpr
   = TEUnit       Type
   | TEVar        Type Sym
   | TEApp        Type TypedExpr [TypedExpr]
-  | TELit        Type Lit
   | TELet        Type Sym Type (Maybe Params) TypedExpr TypedExpr
-  | TEIf         Type TypedExpr TypedExpr TypedExpr
-  | TETuple      Type [TypedExpr]
-  | TETupProj    Type TypedExpr TypedExpr
-  | TERecord     Type [(Sym, TypedExpr)]
-  | TERecordProj Type TypedExpr Sym
   | TECase       Type TypedExpr [(Sym, ([Sym], TypedExpr))]
+  | TEObserve    Type [(Sym, TypedExpr)]
   | TETag        Type Sym [TypedExpr]
   | TEFold       Type Type
   | TEUnfold     Type Type
   | TEData       Type Sym
+  | TECodata     Type Sym
   | TEGlobLet    Type Sym (Maybe Params) TypedExpr
   deriving (Eq, Show)
 
@@ -30,18 +27,14 @@ getTypeAnno :: TypedExpr -> Type
 getTypeAnno (TEUnit       t      ) = t
 getTypeAnno (TEVar        t _    ) = t
 getTypeAnno (TEApp        t _ _  ) = t
-getTypeAnno (TELit        t _    ) = t
 getTypeAnno (TELet        t _ _ _ _ _) = t
-getTypeAnno (TEIf         t _ _ _) = t
-getTypeAnno (TETuple      t _    ) = t
-getTypeAnno (TETupProj    t _ _  ) = t
-getTypeAnno (TERecord     t _    ) = t
-getTypeAnno (TERecordProj t _ _  ) = t
 getTypeAnno (TECase       t _ _  ) = t
+getTypeAnno (TEObserve    t _    ) = t
 getTypeAnno (TETag        t _ _  ) = t
 getTypeAnno (TEFold       t _    ) = t
 getTypeAnno (TEUnfold     t _    ) = t
 getTypeAnno (TEData       t _    ) = t
+getTypeAnno (TECodata     t _    ) = t
 getTypeAnno (TEGlobLet    t _ _ _) = t
 
 data TypeError = Err String deriving Show
@@ -73,13 +66,22 @@ isNotArrowType t          = return t
 
 maybeAppend :: Maybe [a] -> [a] -> [a]
 maybeAppend (Just xs) ys = xs ++ ys
-maybeAPpend Nothing   ys =       ys
+maybeAppend Nothing   ys =       ys
+
+assocJoin :: Eq a => [(a, b)] -> [(a, c)] -> [(b, c)]
+assocJoin [] ys       = []
+assocJoin (x : xs) ys = case lookup (fst x) ys of
+                          Just y  -> (snd x, y) : assocJoin xs ys
+                          Nothing -> error $ "Not found"
+
+matchTEWithType :: (TypedExpr, Type) -> Env -> Either TypeError Type
+matchTEWithType (te, t) = typeEquality (getTypeAnno te) t
+
+bagEq :: Ord a => [a] -> [a] -> Bool
+bagEq xs ys = sort xs == sort ys
 
 check :: Env -> Env -> Expr -> Either TypeError TypedExpr
 check _ _ EUnit              = return $ TEUnit TUnit
-check _ _ (ELit (LInt i))    = return $ TELit TInt (LInt i)
-check _ _ (ELit (LBool b))   = return $ TELit TBool (LBool b)
-check _ _ (ELit (LString s)) = return $ TELit TString (LString s)
 check vEnv tEnv (EVar x) = case (lookup x vEnv) of
   Just e  -> return $ TEVar e x
   Nothing -> throwError $ Err (x ++ " not in scope")
@@ -93,53 +95,12 @@ check vEnv tEnv (EApp e1 e2) = do
                         Left x  -> throwError x
         _ -> throwError $ Err "Application on non arrow type"
     Left err -> throwError err
-check vEnv tEnv (ELet s t ps e1 e2) = do
+check vEnv tEnv (ELet s t ps e1 e2) = do 
     te1 <- check ((s,t) : (maybeAppend ps vEnv)) tEnv e1
     te2 <- check ((s,t) : vEnv) tEnv e2
     case typeEquality t (getTypeAnno te1) tEnv of
       Right _ -> return $ TELet (getTypeAnno te2) s t ps te1 te2
       Left err -> throwError err
-check vEnv tEnv (EIf c b1 b2) = do
-  ct <- check vEnv tEnv c
-  case getTypeAnno ct of  
-    TBool -> do
-      te1 <- check vEnv tEnv b1
-      te2 <- check vEnv tEnv b2
-      case (typeEquality (getTypeAnno te1) (getTypeAnno te2)) tEnv of
-        Right(t) -> return $ TEIf t ct te1 te2
-        _        -> throwError $ Err "Types of branches in IF are not equal"
-    _ -> throwError $ Err "Conditional of IF not a Boolean type"
-check vEnv tEnv (ETuple es) = do
-  let ts = map (check vEnv tEnv) es in
-    case lefts ts of
-      []    -> return $ TETuple (TTuple (map getTypeAnno (rights ts))) (rights ts)
-      x : _ -> throwError x
-check vEnv tEnv (ETupProj e l) = do
-  te <- check vEnv tEnv e
-  case l of
-    ELit li ->
-      case li of
-        LInt i ->
-          case getTypeAnno te of
-            TTuple ts | length ts > i -> return $ TETupProj (ts !! i) te (TELit TInt li)
-            TTuple ts                 -> throwError $ Err "Tuple index too large"
-            _                         -> throwError $ Err "Tuple projection attempted on non tuple type"
-        _ -> throwError $ Err "Tuple index not an integer"
-    _ -> throwError $ Err "Tuple index not a literate"
-check vEnv tEnv (ERecord es) = do
-  let ts = map (check vEnv tEnv) (map snd es) in
-    case lefts ts of
-      []    -> return $ TERecord (TRecord (zip (map fst es) (map getTypeAnno (rights ts)))) (zip (map fst es) (rights ts))
-      x : _ -> throwError x
-check vEnv tEnv (ERecordProj e s) = do
-  case e of
-    ERecord es ->
-      case lookup s es of
-        Just exp -> do
-          texp <- check vEnv tEnv exp
-          return $ TERecordProj (getTypeAnno texp) texp s
-        Nothing  -> throwError $ Err (s ++ "not in record scope")
-    _       -> throwError $ Err "Record projection on non record"
 check vEnv tEnv (ETag s e t) = do
   case t of
     TVari fs ->
@@ -160,10 +121,10 @@ check vEnv tEnv (ETag s e t) = do
 check vEnv tEnv (ECase e es) = do
   te <- check vEnv tEnv e
   case getTypeAnno te of
-    (TRec s vt) ->
+    (TRecInd s vt) ->
       case vt of
         TVari fs ->
-          if (not $ all (\x -> elem x (map fst fs)) (map fst es)) 
+          if (not $ bagEq (map fst fs) (map fst es))
             then throwError $ Err "Not all case labels were in type" 
             else 
               let vEnvs = map (: vEnv) (zip (concat (map fst (map snd es))) (concat (map snd fs))) in
@@ -174,29 +135,61 @@ check vEnv tEnv (ECase e es) = do
                       Left err -> throwError err
                   Left err -> throwError err
         _ -> throwError $ Err "Not a variant type"
-    _ -> throwError $ Err "Expected recursive type in case"
+    _ -> throwError $ Err "Expected inductive type in case"
+check vEnv tEnv (EObserve t es) = do
+  case t of
+    TRecCoind s fs ->
+      if (not $ bagEq (map fst fs) (map fst es))
+        then throwError $ Err "Not all observation labels were in type" 
+        else
+          case eitherUnzip $ map (check vEnv tEnv) (map snd es) of
+            Right tes -> 
+              case assocJoin (zip (map fst es) tes) (listMapSnd (substTypeVari s t) fs) of
+                []     -> throwError $ Err "No observations found"
+                xs     -> 
+                  case eitherUnzip $ map (\x -> matchTEWithType x tEnv) xs of
+                    Right _  -> return $ TEObserve t (zip (map fst es) tes)
+                    Left err -> throwError err
+            Left err -> throwError err
+    TGlobTypeVar s -> do
+                  t <- typeVarLookup s tEnv
+                  check vEnv tEnv (EObserve t es)
+    _ -> throwError $ Err "Expected coinductive type in observation"
 check vEnv tEnv (EFold t) = do
   case t of
-    TRec s nt -> return $ TEFold (TArr [nt] t) t
+    TRecInd s nt -> return $ TEFold (TArr [nt] t) t
     TGlobTypeVar s -> do
                   t <- typeVarLookup s tEnv
                   check vEnv tEnv (EFold t)
     _         -> throwError $ Err "Fold attempted on non recursive type"
 check vEnv tEnv (EUnfold t) = do
   case t of
-    TRec s nt -> return $ TEUnfold (TArr [t] (TRec s (substTypeVari s t nt))) t
+    TRecInd s nt -> return $ TEUnfold (TArr [t] (TRecInd s (substTypeVari s t nt))) t
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (EUnfold t)
     _         -> throwError $ Err ("Unfold attempted on non recursive type: " ++ (show t))
 check vEnv tEnv (EData s t) = 
   case t of
-    TRec s' nt | s == s' -> return $ TEData (TRec s nt) s
-               | otherwise -> throwError $ Err "Data labels not matching"
+    TRecInd s' nt | s == s' -> case nt of
+                                 TVari fs -> do
+                                 lbls <- assocDups fs
+                                 return $ TEData (TRecInd s (TVari lbls)) s
+                  | otherwise -> throwError $ Err "Data labels not matching"
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (EData s t)
-    _                    -> throwError $ Err "Not a recursive types"
+    _                    -> throwError $ Err (s ++ "not an inductive type")
+check vEnv tEnv (ECodata s t) =
+  case t of
+    TRecCoind s' es | s == s' -> do
+                               lbls <- assocDups es
+                               return $ TECodata (TRecCoind s lbls) s
+                    | otherwise -> throwError $ Err "Codata labels not matching"
+    TGlobTypeVar s       -> do
+                          t <- typeVarLookup s tEnv
+                          check vEnv tEnv (ECodata s t)
+    _                    -> throwError $ Err (s ++ "not an coinductive type")
 check vEnv tEnv (EGlobLet s t ps e) = do
   te <- check (maybeAppend ps vEnv) tEnv e
   case ps of
@@ -233,22 +226,27 @@ eitherUnzip (x : xs) = case x of
                           ts <- eitherUnzip xs
                           return $ t : ts
 
+assocDups :: [(Sym, a)] -> Either TypeError [(Sym, a)]
+assocDups (x : []) = return $ [x]
+assocDups (x : xs) = case lookup (fst x) xs of
+                                      Just _ -> throwError $ Err ("Illigal duplicate name: " ++ (fst x))
+                                      Nothing -> do
+                                        rest <- assocDups xs
+                                        return $ x : rest
+assocDups _ = throwError $ Err "No symbols"
+
 substTypeVari :: Sym -> Type -> Type -> Type
 substTypeVari s t (TArr  t1 t2) = TArr (map (substTypeVari s t) t1) (substTypeVari s t t2)
-substTypeVari s t (TTuple   ts) = TTuple  (map (substTypeVari s t) ts)
-substTypeVari s t (TRecord  ts) = TRecord $ listMapSnd (substTypeVari s t) ts
 substTypeVari s t (TVari    ts) = TVari   $ listMapSnd (map $ substTypeVari s t) ts
-substTypeVari s t (TRec  s' t') = TRec    s' (substTypeVari s t t')
+substTypeVari s t (TRecInd s' t') = TRecInd s' (substTypeVari s t t')
 substTypeVari s t (TRecTypeVar s') | s == s' = t
 substTypeVari _ _ a = a
 
 
 globTypeSubst :: Env -> Type -> Type
 globTypeSubst env (TArr t1 t2)     = TArr (map (globTypeSubst env) t1) (globTypeSubst env t2)
-globTypeSubst env (TTuple ts)      = TTuple (map (globTypeSubst env) ts)
-globTypeSubst env (TRecord ts)     = TRecord $ listMapSnd (globTypeSubst env) ts
 globTypeSubst env (TVari ts)       = TVari $ listMapSnd (map $ globTypeSubst env) ts
-globTypeSubst env (TRec s t)       = TRec s (globTypeSubst env t)
+globTypeSubst env (TRecInd s t)    = TRecInd s (globTypeSubst env t)
 globTypeSubst env (TGlobTypeVar s) = case lookup s env of
                                            Just(t) -> globTypeSubst env t
                                            _ -> TGlobTypeVar "not found"
@@ -257,11 +255,6 @@ globTypeSubst _ a = a
 globTypeInExprSubst :: Env -> Expr -> Expr
 globTypeInExprSubst env (EApp e1 e2) = EApp (globTypeInExprSubst env e1) (map (globTypeInExprSubst env) e2)
 globTypeInExprSubst env (ELet s t ps e1 e2) = ELet s (globTypeSubst env t) (listMapSnd (globTypeSubst env) <$> ps) (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
-globTypeInExprSubst env (EIf c e1 e2) = EIf (globTypeInExprSubst env c) (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
-globTypeInExprSubst env (ETuple es) = ETuple (map (globTypeInExprSubst env) es)
-globTypeInExprSubst env (ETupProj e1 e2) = ETupProj (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
-globTypeInExprSubst env (ERecord es) = ERecord $ listMapSnd (globTypeInExprSubst env) es
-globTypeInExprSubst env (ERecordProj e s) = ERecordProj (globTypeInExprSubst env e) s
 globTypeInExprSubst env (ECase e es) = ECase (globTypeInExprSubst env e) (listMapSnd (mapSnd (globTypeInExprSubst env)) es)
 globTypeInExprSubst env (ETag s es t) = ETag s (map (globTypeInExprSubst env) es) (globTypeSubst env t)
 globTypeInExprSubst env (EFold t) = EFold (globTypeSubst env t)
@@ -276,15 +269,35 @@ buildRootEnv []       = Right ([], [])
 buildRootEnv (x : xs) = case buildRootEnv xs of
                           Right l -> 
                             case x of
-                              EData    s t   -> return $ (fst l, (s, t) : (snd l))
+                              EData    s t   -> return $ ((listMapSnd reduceArrows (typeFunctions t)) ++ (fst l), (s, t) : (snd l))
+                              ECodata  s t   -> return $ ((typeFunctions t) ++ (fst l), (s, t) : (snd l))
                               EGlobLet s t _ _ -> return $ ((s, t) : (fst l), snd l)
                               _             -> throwError $ Err "Not a valid root type"
                           Left  e -> throwError e
 
+typeFunctions :: Type -> [(Sym, Type)]
+typeFunctions (TRecInd s t)   = case t of 
+                                  TVari fs ->
+                                    listMapSnd (\x -> TArr (map (\y -> substTypeVari s (TGlobTypeVar s) y) x) (TGlobTypeVar s)) fs
+                                  _ -> []
+typeFunctions (TRecCoind s es) = listMapSnd (\x -> TArr [(TGlobTypeVar s)] (substTypeVari s (TGlobTypeVar s) x)) es
+typeFunctions _ = []
+
+reduceArrows :: Type -> Type
+reduceArrows (TArr t1 t2)     = case t1 of
+                                  [] -> t2
+                                  _  -> TArr (map reduceArrows t1) t2
+reduceArrows (TVari ts)       = TVari (listMapSnd (map reduceArrows) ts)
+reduceArrows (TRecInd s t)    = TRecInd s (reduceArrows t)
+reduceArrows (TRecCoind s es) = TRecCoind s (listMapSnd reduceArrows es)
+reduceArrows a = a
+
 checkRoot :: Expr -> Either TypeError [TypedExpr]
 checkRoot (ERoot es) = case buildRootEnv es of
-                         Right l -> 
-                          let ts = map (check (fst l) (snd l)) es in 
+                         Right l -> do
+                          vEnv <- assocDups $ fst l
+                          tEnv <- assocDups $ snd l
+                          let ts = map (check vEnv tEnv) es in 
                             case eitherUnzip $ ts of
                               Right ts -> return ts
                               Left err -> throwError err
