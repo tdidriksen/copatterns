@@ -3,6 +3,8 @@ module TerminationChecker where
 import Findus
 import TypeChecker
 import Data.List
+import Data.Maybe
+import Control.Monad
 
 -- eval : Expr -> Value* -> Value#
 -- Value# = Z + {}
@@ -14,6 +16,21 @@ import Data.List
 
 -- Graph-basis: The set of things on either side of a transition in a size-change graph
 -- Arc in size-change graph from p1 to p2: gb(p1) x { down, eq } x gb(p2)
+
+-- General functions
+
+-- | Finds the sublist starting from the first element for which the predicate holds.
+subListFrom :: (a -> Bool) -> [a] -> [a]
+subListFrom f     [] = []
+subListFrom f (x:xs) = if f x then x : xs else subListFrom f xs
+
+-- | Creates an association list from a list of triples
+assocListFromTriples :: Eq a => [(a, b, c)] -> [(a, [(a, b, c)])]
+assocListFromTriples [] = []
+assocListFromTriples xs =
+  let groups = groupBy (\(a,_,c) -> \(d,_,e) -> a == d) xs
+      tripleFst (a,_,_) = a
+  in map (\group -> (tripleFst $ head group, group)) groups
 
 -- Handle input
 
@@ -93,7 +110,7 @@ data ControlPoint a = Global Sym a | Local Sym (ControlPoint a) a deriving Eq
 
 -- A Call is a connection between two control points, establishing interdependency
 type CallLabel = String
-type Substitution a = [(DataPosition a, DataPosition a)]
+type Substitution a = [(Sym, DataPosition a)]
 type Call a b = (ControlPoint a, b, ControlPoint a)
 type CallSequence a b = [Call a b]
 
@@ -119,27 +136,40 @@ controlPointData (Local _ _ a) = a
 
 -- Size-change graphs
 
-data Arrow = Descending | NonIncreasing | Absent deriving Eq
+data Arrow = Descending | NonIncreasing deriving Eq
 
 -- Data positions represent the terms that (may) change size
-data DataPosition a = DataPos a deriving Eq
+newtype DataPosition a = DataPos { getData :: a } deriving Eq
 
 -- A size-change arc describes a change between two data positions
 type SCArc a = (DataPosition a, Arrow, DataPosition a)
 
--- A size-change graph is a set of size-change arcs. Data positions are included here for later consistency checks.
-type SizeChangeGraph a = ([DataPosition a], [SCArc a], [DataPosition a])
+-- A size-change graph is a set of size-change arcs.
+type SizeChangeGraph a b = (ControlPoint a, [SCArc b], ControlPoint a)
 
-type MultiPath a = [SizeChangeGraph a]
+type MultiPath a b = [SizeChangeGraph a b]
 
 type Thread a = [SCArc a]
 
 -- Functions on size-change graphs
 
-areComposable :: Eq a => SizeChangeGraph a -> SizeChangeGraph a -> Bool
+hasArc :: Eq b => SizeChangeGraph a b -> SCArc b -> Bool
+hasArc (_, arcs, _) arc = any (== arc) arcs
+
+isArcSafe :: Ord b => SizeChangeGraph a b -> Bool
+isArcSafe (as, arcs, bs) = all (\arc -> isSafeArc arc) arcs && hasConsistentArcs arcs
+ where
+   isSafeArc :: Ord b => SCArc b -> Bool
+   isSafeArc (DataPos a, Descending, DataPos b)    = a < b
+   isSafeArc (DataPos a, NonIncreasing, DataPos b) = a <= b
+
+   hasConsistentArcs :: Eq a => [SCArc a] -> Bool -- Consistency = no duplicate arcs with different arrows
+   hasConsistentArcs arcs = null $ [ (a, y) | (a, arr, b) <- arcs, (x, arr', y) <- arcs, a == x, b == y, not (arr == arr') ]
+
+areComposable :: Eq a => SizeChangeGraph a b -> SizeChangeGraph a b -> Bool
 areComposable (_, _, y) (y', _, _) = y == y'
 
-compose :: Eq a => SizeChangeGraph a -> SizeChangeGraph a -> Maybe (SizeChangeGraph a)
+compose :: (Eq a, Eq b) => SizeChangeGraph a b -> SizeChangeGraph a b -> Maybe (SizeChangeGraph a b)
 compose g@(x, xy, y) g'@(y', yz, z)
   | areComposable g g' = Just (x, composeArrows xy yz, z)
   | otherwise          = Nothing
@@ -149,25 +179,71 @@ compose g@(x, xy, y) g'@(y', yz, z)
           [ (x, Descending   , z) | (x, arr, y) <- xy, (y', arr', z) <- yz, y == y',
                                     arr == Descending || arr' == Descending       ] ++
           [ (x, NonIncreasing, z) | (x, arr, y) <- xy, (y', arr', z) <- yz, y == y',
-                                    arr == NonIncreasing && arr' == NonIncreasing ] ++
-          [ (x, Absent       , z) | (x, arr, y) <- xy, (y', arr', z) <- yz, y == y',
-                                    arr == Absent || arr' == Absent               ]
+                                    arr == NonIncreasing && arr' == NonIncreasing ]
+
+composeAll :: (Eq a, Eq b) => SizeChangeGraph a b -> [SizeChangeGraph a b] -> [SizeChangeGraph a b]
+composeAll g [] = [g]
+composeAll g gs = mapMaybe (compose g) gs
+
+cyclicMultiPaths :: Eq a => [SizeChangeGraph a b] -> [MultiPath a b]
+cyclicMultiPaths []                 = []
+cyclicMultiPaths (scgs@((f,_,g):_)) = cycles f (assocListFromTriples scgs) [] []
+  where            -- Current node      Adjacency list                               Path
+    cycles :: Eq a => ControlPoint a -> [(ControlPoint a, [SizeChangeGraph a b])] -> [SizeChangeGraph a b] ->
+             -- Visited          Cycles
+             [ControlPoint a] -> [MultiPath a b]
+    cycles node graph path visited =
+      let nodesVisited = if node `notElem` visited then node : visited else visited
+          nodeEdges = case lookup node graph of
+                        Just edges -> edges
+                        Nothing    -> []
+          -- cycleEdges create a cycle
+          (cycleEdges, unexploredEdges) = partition (\(f, _, g) -> g `elem` nodesVisited) nodeEdges
+          cyclePaths = map (\(f,x,g) -> (subListFrom (\(m,_,n) -> g == m) path) ++ [(f,x,g)]) cycleEdges
+          unexploredPaths =
+            case unexploredEdges of
+              [] -> case path of
+                      -- Find out if any nodes have not been considered
+                      [] -> case find (\(n, _) -> n `notElem` nodesVisited) graph of
+                              Just (n, _) -> cycles n graph [] [] -- Found one!
+                              Nothing     -> [] -- All nodes have been considered, terminate
+                      ((f,_,_):p) -> cycles f graph p nodesVisited -- Backtrack
+              unexplored ->
+                concat $ map (\(f,x,g) -> cycles g graph (path ++ [(f,x,g)]) nodesVisited) unexplored 
+       in cyclePaths ++ unexploredPaths
+
+cycledUntilHead :: Eq a => [a] -> a -> [a]
+cycledUntilHead (x:xs) y
+  | y `elem` (x:xs) = if x == y then (x:xs) else cycledUntilHead (xs ++ [x]) y
+  | otherwise       = (x:xs)
+
+allMultiPaths :: (Eq a, Eq b) => MultiPath a b -> [MultiPath a b]
+allMultiPaths multipath = map (\scg -> cycledUntilHead multipath scg) multipath
+
+collapse :: (Eq a, Eq b) => MultiPath a b -> Maybe (SizeChangeGraph a b)
+collapse multipath
+  | not (null multipath) = foldM compose (head multipath) (tail multipath)
+  | otherwise            = Nothing                           
 
 
-hasArc :: Eq a => SizeChangeGraph a -> SCArc a -> Bool
-hasArc (_, arcs, _) arc = any (== arc) arcs
+-- Functions for determining termination
 
-isSafe :: (Eq a, Ord a) => SizeChangeGraph a -> Bool
-isSafe (as, arcs, bs) = all (\arc -> isSafeArc as arc bs) arcs && hasConsistentArcs arcs
- where
-   isSafeArc :: (Eq a, Ord a) => [DataPosition a] -> SCArc a -> [DataPosition a] -> Bool
-   isSafeArc as (DataPos a', arrow, DataPos b') bs =
-     DataPos a' `elem` as && DataPos b' `elem` bs && case arrow of
-                                                       Descending    -> a' < b'
-                                                       NonIncreasing -> a' <= b'
-                                                       Absent        -> a' > b'
-   hasConsistentArcs :: Eq a => [SCArc a] -> Bool -- Consistency = no duplicate arcs with different arrows
-   hasConsistentArcs arcs = null $ [ (a, y) | (a, arr, b) <- arcs, (x, arr', y) <- arcs, a == x, b == y, not (arr == arr') ]
+isLoop :: Eq a => SizeChangeGraph a b -> Bool
+isLoop (f, _, g) = f == g
+
+-- | Determines whether a size-change graph G is equal to G;G G composed with G (i.e. G;G)
+isSelfComposition :: (Eq a, Eq b) => SizeChangeGraph a b -> Bool
+isSelfComposition g = case g `compose` g of
+                        Just g' -> g == g'
+                        Nothing -> False
+
+data Termination = Termination
+data NonTermination = NonTermination
+-- Theorem 4!
+isSizeChangeTerminating :: Eq a => SizeChangeGraph a b -> Either NonTermination Termination
+isSizeChangeTerminating g
+  | isLoop g  = Right Termination
+  | otherwise = Right Termination
 
 -- Building size-change graphs
     -- 1. Build control-flow graph, CFG
@@ -223,15 +299,15 @@ controlFlowGraph f (TEApp _ g args) cps dataenv hints =
   let target = case controlPointFromExpr g cps of
                  Just cp -> cp
                  Nothing -> error "Called function does not exist"
-  in let targetData cp = map snd $ controlPointData cp
-  in let argPositions = map (\arg -> DataPos $ sizeOf arg f cps dataenv hints) args
-  in let call h = (f, zip (targetData h) argPositions, h)
+      targetData cp = map fst $ controlPointData cp
+      argPositions = map (\arg -> DataPos $ sizeOf arg f cps dataenv hints) args
+      call h = (f, zip (targetData h) argPositions, h)
   in call target : (foldl (++) [] $ map (\arg -> controlFlowGraph f arg cps dataenv hints) args)
 controlFlowGraph f (TELet ty id exprty params expr body) cps dataenv hints =
   let paramData = paramsAsData params
-  in let localDef = Local id f paramData
-  in let exprGraph = controlFlowGraph localDef expr (localDef : cps) (paramData ++ dataenv) hints
-  in let exprSize = sizeOf expr f cps (paramData ++ dataenv) hints
+      localDef = Local id f paramData
+      exprGraph = controlFlowGraph localDef expr (localDef : cps) (paramData ++ dataenv) hints
+      exprSize = sizeOf expr f cps (paramData ++ dataenv) hints
   in case exprGraph of
        [] -> case params of
                Just ps -> controlFlowGraph f body (localDef : cps) ((id, DataPos $ Deferred body) : dataenv) hints
@@ -245,20 +321,20 @@ controlFlowGraph f (TERecord ty exprs) cps dataenv hints =
   foldl (++) [] $ map (\(_, e) -> controlFlowGraph f e cps dataenv hints) exprs
 controlFlowGraph f (TECase ty expr cases) cps dataenv hints =
   let exprSize = sizeOf expr f cps dataenv hints
-  in let exprType = getTypeAnno expr
-  in let variant = case exprType of
+      exprType = getTypeAnno expr
+      variant = case exprType of
                      TVari ts          -> ts
                      TRec _ (TVari ts) -> ts
                      _                 -> error "Matched expression is not a variant type" -- TODO
-  in let caseTypes id = case lookup id variant of
+      caseTypes id = case lookup id variant of
                           Just tys -> tys
                           Nothing  -> error "Incompatible pattern"
-  in let annotatedVars (id, (vars, _)) = zip vars (caseTypes id)
-  in let isRecType = (== exprType)
-  in let argEnv c = map (\(v, t) -> if isRecType t then (v, DataPos $ D exprSize) else (v, DataPos $ Var v)) (annotatedVars c)
-  in let caseExpr = snd . snd
-  in let constructor = fst
-  in let caseGraphs = map (\c -> controlFlowGraph f (caseExpr c) cps (argEnv c ++ dataenv) ((expr, constructor c) : hints)) cases
+      annotatedVars (id, (vars, _)) = zip vars (caseTypes id)
+      isRecType = (== exprType)
+      argEnv c = map (\(v, t) -> if isRecType t then (v, DataPos $ D exprSize) else (v, DataPos $ Var v)) (annotatedVars c)
+      caseExpr = snd . snd
+      constructor = fst
+      caseGraphs = map (\c -> controlFlowGraph f (caseExpr c) cps (argEnv c ++ dataenv) ((expr, constructor c) : hints)) cases
   in foldl (++) [] $ caseGraphs
 controlFlowGraph f (TETag ty id args) cps dataenv hints = 
   foldl (++) [] $ map (\arg -> controlFlowGraph f arg cps dataenv hints) args
@@ -280,36 +356,36 @@ sizeOf (TEApp _ f args) cp cps env hints =
   let target = case controlPointFromExpr f cps of
                  Just cp -> cp
                  Nothing -> error "Called function does not exist"
-  in let targetData = controlPointData target
+      targetData = controlPointData target
   in sizeOf f cp cps (zip (map fst targetData) (map (\arg -> DataPos $ sizeOf arg cp cps env hints) args) ++ env) hints
 sizeOf (TELet _ id _ p expr body) f cps env hints =
   let params = paramsAsData p
-  in let localDef = Local id f params
-  in let exprSize = sizeOf expr localDef (localDef : cps) (params ++ env) hints
+      localDef = Local id f params
+      exprSize = sizeOf expr localDef (localDef : cps) (params ++ env) hints
   in sizeOf body f cps ((id, DataPos exprSize) : env) hints
 sizeOf (TECase _ expr cases) f cps env hints =
   let exprSize = sizeOf expr f cps env hints
-  in let exprType = getTypeAnno expr
-  in let variant = case exprType of
+      exprType = getTypeAnno expr
+      variant = case exprType of
                      TVari ts          -> ts
                      TRec _ (TVari ts) -> ts
                      _                 -> error "Matched expression is not a variant type" -- TODO
-  in let caseTypes id = case lookup id variant of
+      caseTypes id = case lookup id variant of
                           Just tys -> tys
                           Nothing  -> error "Incompatible pattern"
-  in let annoVars (id, (vars, _)) = zip vars (caseTypes id)
-  in let isRecType = (== exprType)
-  in let argEnv c = map (\(v, t) -> if isRecType t then (v, DataPos $ D exprSize) else (v, DataPos $ Var v)) (annoVars c)
-  in let constructor = fst
-  in let caseExpr = snd . snd
-  in let baseCaseSize c = (sizeOf (caseExpr c) f cps ((argEnv c) ++ env) hints) `withAlias` (Min, exprSize)
-  in let recCaseSize c = sizeOf (caseExpr c) f cps ((argEnv c) ++ env) hints
-  in let isBaseCase c = all (\(v,t) -> not $ isRecType t) (annoVars c)
-  in let (baseCases, recCases) = partition isBaseCase cases
-  in let baseCaseSizes = map baseCaseSize baseCases
-  in let recCaseSizes = map recCaseSize recCases
-  in let caseSizes = baseCaseSizes ++ recCaseSizes
-  in let maxSize = if null caseSizes then Unknown else foldr1 max caseSizes -- Gør det mest konservative.
+      annoVars (id, (vars, _)) = zip vars (caseTypes id)
+      isRecType = (== exprType)
+      argEnv c = map (\(v, t) -> if isRecType t then (v, DataPos $ D exprSize) else (v, DataPos $ Var v)) (annoVars c)
+      constructor = fst
+      caseExpr = snd . snd
+      baseCaseSize c = (sizeOf (caseExpr c) f cps ((argEnv c) ++ env) hints) `withAlias` (Min, exprSize)
+      recCaseSize c = sizeOf (caseExpr c) f cps ((argEnv c) ++ env) hints
+      isBaseCase c = all (\(v,t) -> not $ isRecType t) (annoVars c)
+      (baseCases, recCases) = partition isBaseCase cases
+      baseCaseSizes = map baseCaseSize baseCases
+      recCaseSizes = map recCaseSize recCases
+      caseSizes = baseCaseSizes ++ recCaseSizes
+      maxSize = if null caseSizes then Unknown else foldr1 max caseSizes -- Gør det mest konservative.
   in case lookup expr hints of
        Just hint ->
          case find (\c -> constructor c == hint) cases of
@@ -321,62 +397,40 @@ sizeOf (TETag tagty id args) f cps env hints =
                             vari@(TVari _) -> vari == tagty
                             TRec _ vari    -> vari == tagty
                             _              -> False
-  in let sizeChangingArgs = filter hasTaggedType args
+      sizeChangingArgs = filter hasTaggedType args
   in case sizeChangingArgs of
        []    -> Min
        [arg] -> C (sizeOf arg f cps env hints)
        args  -> Multiple $ map (\arg -> C (sizeOf arg f cps env hints)) args
 sizeOf _ _ _ _ _ = Unknown
 
+sizeChangeGraph :: Call DataEnv (Substitution Size) -> SizeChangeGraph DataEnv (Sym, Size)
+sizeChangeGraph (f, subs, g) = (f, mapMaybe toSCArc subs, g)
+  where
+    toSCArc :: (Sym, DataPosition Size) -> Maybe (SCArc (Sym, Size))
+    toSCArc (y, arg) =
+      let argSize = getData arg
+          argRoots = parameterRoots argSize
+          fParams = mapMaybe (\p -> find (\(x, _) -> p == x) (controlPointData f)) argRoots
+          orderedParams = map (\(x, DataPos xSize) -> (x, DataPos xSize, compare argSize xSize)) fParams
+      in do
+           (x, DataPos initSize, ord) <- minOrder orderedParams Nothing
+           arc <- case ord of
+                    LT -> Just (DataPos (x, initSize), Descending, DataPos (y, argSize))
+                    EQ -> Just (DataPos (x, initSize), NonIncreasing, DataPos (y, argSize))
+                    GT -> Nothing
+           return arc
+           
+    parameterRoots :: Size -> [Sym]
+    parameterRoots (Param x)     = [x]
+    parameterRoots (D s)         = parameterRoots s
+    parameterRoots (C s)         = parameterRoots s
+    parameterRoots (Multiple ss) = concat $ map parameterRoots ss
+    parameterRoots _             = []
 
--- controlFlowGraph :: [TypedExpr] -> [ControlPoint DataEnv] -> DataEnv -> ControlFlowGraph DataEnv
-
-
-
--- controlFlowGraph :: [(ControlPoint DataEnv, TypedExpr)] -> -> ControlFlowGraph DataEnv
--- controlFlowGraph cps = concat $ map (\(cp, body) -> controlFlow cp (map fst cps) (dataEnv cp) body) cps
---  where
---    controlFlow :: ControlPoint DataEnv -> TypedExpr -> [ControlPoint DataEnv] -> DataEnv -> ControlFlowGraph DataEnv
---    controlFlow cp (TELet ty name params (TArr _ _) expr body) cpenv denv =
---      let localcp = (Local name cp denv) in
---        controlFlow localcp expr (localcp : cpenv) (paramsAsData params : denv) : controlFlow cp body (localcp : cpenv) denv
-   
-
--- initialControlPoints :: [TypedExpr] -> [ControlPoint TypedExpr]
--- initialControlPoints tes = map ControlPoint tes
-
--- callsForControlPoint :: ControlPoint TypedExpr -> TypedExpr -> [ControlPoint TypedExpr] -> [Call TypedExpr]
--- callsForControlPoint (ControlPoint cp) () = 
-
--- controlFlowGraph :: TypedExpr -> ControlFlowGraph TypedExpr
--- controlFlowGraph 
-
-
-
-
--- controlPoints :: TypedExpr -> [TypedExpr]
--- controlPoints global@(TELetFun _ _ body)           = global : controlPoints body
--- controlPoints (TELam funType var (TArr t t') body) = TEVar (TArr t t') var : controlPoints body
--- controlPoints (TELam funType _   _           body) = controlPoints body
--- controlPoints (TELet _ var varExpr body)           = case getTypeAnno varExpr of
---                                                        TArr t t' -> TEVar (TArr t t') var : controlPoints body
-                                                       
---                                                        _         -> controlPoints body
-
--- controlPoints _                                    = []
-
-
--- -- subexpressions
-
--- subexpr :: TypedExpr -> [TypedExpr]
--- subexpr unit@(TEUnit t)                                        = [ unit ]
--- subexpr var@(TEVar t s)                                        = [ var ]
--- subexpr (TELam t s argT body)                                  = [ body ]
--- subexpr (TEApp t f arg)                                        = [ f, arg ]
--- subexpr lit@(TELit t l)                                        = [ lit ]
--- subexpr (TELet t x xexp body)                                  = [ ]
--- subexpr (TEIf t cond tbr fbr)                                  = [ cond, tbr, fbr ]
--- subexpr (TETuple t elems)                                      = elems
--- subexpr (TETupProj t (TETuple t' elems) (TELit TInt (LInt i))) = [ elems !! i ]
--- subexpr (TERecord t elems)                                     = (map snd elems)
---subexpr (TERecordProj t elems sym)                             = 
+    minOrder :: Ord c => [(a, b, c)] -> Maybe (a, b, c) -> Maybe (a, b, c)
+    minOrder []                     acc                     = acc
+    minOrder (el@(_, _, ord) : xs)  Nothing                 = minOrder xs (Just el)
+    minOrder (new@(_, _, ord) : xs) old@(Just (_, _, ord')) = if ord < ord' 
+                                                              then minOrder xs (Just new)
+                                                              else minOrder xs old
