@@ -1,3 +1,6 @@
+# Directories:
+src/findus/test/dist
+
 # SublimeText:
 *.sublime-workspace
 *.sublime-project
