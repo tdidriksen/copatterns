@@ -6,7 +6,7 @@ import qualified Text.Parsec.Expr as Ex
 import Lexer
 import Expr
 
-spaces = skipMany space
+spaces = skipMany space >> skipMany newline
 
 -- let x : int = 1 in x + 1 end
 -- let f (x : int, y : int) : int = x + y in f 1 1 end
@@ -92,8 +92,7 @@ inductivedata = do
   reserved "data"
   x <- identifier
   reservedOp "="
-  cs <- sepBy1 (dataconstructor x) (spaces >> char '|' >> spaces)
-  
+  cs <- braces $ sepBy1 (dataconstructor x) (spaces >> char '|' >> spaces)
   return $ EData x (TRecInd x (TVari cs))
 
 dataconstructor :: String -> Parser (Sym, [Type])
@@ -113,7 +112,7 @@ codata = do
   reserved "codata"
   x <- identifier
   reservedOp "="
-  ds <- sepBy1 (codatadestructor x) (spaces >> char '|' >> spaces)
+  ds <- braces $ sepBy1 (codatadestructor x) (spaces >> char '|' >> spaces)
   return $ ECodata x (TRecCoind x ds)
 
 codatadestructor :: String -> Parser (Sym, Type)
@@ -160,10 +159,16 @@ globaltypevar = do
   return $ TGlobTypeVar x
 
 ty :: Parser Type
-ty = (try unittype) <|> globaltypevar
+ty = (try unittype) <|> globaltypevar <|> arrowType
 
 rectypevar :: String -> Parser Type
 rectypevar s = string s >> (return $ TRecTypeVar s)
+
+arrowType :: Parser Type
+arrowType = do
+    ts <- parens $ sepBy1 ty (reservedOp "->")
+    case reverse ts of
+      x : xs -> return $ TArr (reverse xs) x
 
 expr :: Parser Expr
 expr = try funapp
@@ -188,7 +193,7 @@ prog = do
 readExpr :: String -> Either ParseError Expr
 readExpr input = parse prog "findus" input
 
-letExample = "let x : nat = Z in S (Z)"
+letExample = "let x : (nat -> Unit) = Z in S (Z)"
 
 letGlobExample1 = "let x : Unit = f (Z)"
 letGlobExample2 = "let y : Unit = x (S (Z))" 
@@ -203,14 +208,16 @@ observeExample = "observe natStream as " ++
     "head -> Z;" ++
     "tail -> fib"
 
-natEx = "data nat = " ++
+natEx = "data nat = {" ++
          "Z " ++
-       "| S nat"
+       "| S nat}"
 
 dataNatListExample = "data natList = " ++
                       "nil" ++
                       "cons nat natList"
 
 natStreamEx = "codata natStream = " ++
-   " head nat" ++
-  "| tail natStream"
+   " {head nat" ++
+  "| tail natStream}"
+
+testEx = unlines [natEx, natStreamEx, letExample]

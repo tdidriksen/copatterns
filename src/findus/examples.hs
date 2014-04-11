@@ -7,7 +7,7 @@ import Control.Applicative
 -- Root Example
 rootEnv = case buildRootEnv root of
             Right(l) -> l
-root = [codataNatStream, letFib, letNatPlus, letZipWithPlus, dataNatList, letEmpty, letShrink, letNatPred, letStupid1, letStupid2, letInfRec, dataNat]
+root = [dataNat, letNatPlus]--[codataNatStream, letFib, letNatPlus, letZipWithPlus, dataNatList, letEmpty, letShrink, letNatPred, letStupid1, letStupid2, letInfRec, dataNat]
 rootExpr = ERoot root
 checkRootEx = checkRoot rootExpr
 listOfRootEx = case checkRootEx of
@@ -28,7 +28,7 @@ nat = TRecInd "nat" (natBody)
 letNatPlus = EGlobLet "plus" (TArr [TGlobTypeVar "nat", TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just ([("n", TGlobTypeVar "nat"), ("m", TGlobTypeVar "nat")])) natPlus
 natPlus = ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "n")]) [
             ("Z", ([], EVar "m")),
-            ("S", (["n'"], EApp (EApp (EVar "plus") [(EVar "n'")]) [(EVar "m")]))
+            ("S", (["n'"], EApp (EVar "plus") [(EVar "n'"), (EVar "m")]))
           ]
 
 letNatPred = EGlobLet "pred" (TArr [TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just [("n", TGlobTypeVar "nat")]) natPred

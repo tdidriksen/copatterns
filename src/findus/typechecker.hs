@@ -74,6 +74,10 @@ assocJoin (x : xs) ys = case lookup (fst x) ys of
                           Just y  -> (snd x, y) : assocJoin xs ys
                           Nothing -> error $ "Not found"
 
+pairConcat :: [([a], [b])] -> [(a, b)]
+pairConcat [] = []
+pairConcat (x : xs) = zip (fst x) (snd x) ++ (pairConcat xs)
+
 matchTEWithType :: (TypedExpr, Type) -> Env -> Either TypeError Type
 matchTEWithType (te, t) = typeEquality (getTypeAnno te) t
 
@@ -127,12 +131,14 @@ check vEnv tEnv (ECase e es) = do
           if (not $ bagEq (map fst fs) (map fst es))
             then throwError $ Err "Not all case labels were in type" 
             else 
-              let vEnvs = map (: vEnv) (zip (concat (map fst (map snd es))) (concat (map snd fs))) in
+              let vEnvs = map (++ vEnv) (map (\x -> zip (fst x) (snd x)) (assocJoin (listMapSnd fst es) fs)) in
                 case eitherUnzip $ zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) of
-                  Right(t : ts) -> 
+                  Right(t : ts) -> --return $ TETag (TGlobTypeVar "nat") (show $  length vEnvs) (t : ts)
+                  
                     case eitherUnzip $ map (\t2 -> typeEquality (getTypeAnno t) t2 tEnv) (map getTypeAnno ts) of
                       Right _ -> return $ TECase (getTypeAnno t) te (zip (map fst es) (zip (map fst (map snd es)) (t : ts)))
                       Left err -> throwError err
+                  
                   Left err -> throwError err
         _ -> throwError $ Err "Not a variant type"
     _ -> throwError $ Err "Expected inductive type in case"

@@ -7,19 +7,22 @@ import Text.Parsec.Language (haskellStyle)
 
 lexer :: Tok.TokenParser ()
 lexer = Tok.makeTokenParser style
-  where ops = ["->", "|", "=", ":", "(", ")", ","]
-        names = ["let", "in", "end", "case", "of", "observe", "as", "data", "codata"]
+  where ops = ["->", "|", "=", ":", "(", ")", ",", "{", "}"]
         style = haskellStyle{
                              Tok.reservedOpNames = ops,
-                             Tok.reservedNames = names,
+                             Tok.reservedNames = keywords,
                              Tok.commentLine = "--"
                             }
+keywords = ["let", "in", "end", "case", "of", "observe", "as", "data", "codata"]
 
 lexeme :: Parser a -> Parser a
 lexeme = Tok.lexeme lexer
 
 parens :: Parser a -> Parser a
 parens = Tok.parens lexer
+
+braces :: Parser a -> Parser a
+braces = Tok.braces lexer
 
 reserved :: String -> Parser ()
 reserved = Tok.reserved lexer
@@ -29,3 +32,6 @@ reservedOp = Tok.reservedOp lexer
 
 identifier :: Parser String
 identifier = Tok.identifier lexer
+
+reservedKw :: Parser ()
+reservedKw = foldr1 (<|>) (map reserved keywords)
