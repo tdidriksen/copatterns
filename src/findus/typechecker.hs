@@ -179,8 +179,8 @@ check vEnv tEnv (EData s t) =
   case t of
     TRecInd s' nt | s == s' -> case nt of
                                  TVari fs -> do
-                                 lbls <- assocDups fs
-                                 return $ TEData (TRecInd s (TVari lbls)) s
+                                   lbls <- assocDups fs
+                                   return $ TEData (TRecInd s (TVari lbls)) s
                   | otherwise -> throwError $ Err "Data labels not matching"
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
