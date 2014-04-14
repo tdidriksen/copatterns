@@ -2,7 +2,6 @@ module TypeChecker where
 
 import Data.Either
 import Control.Monad.Error
-import Control.Monad.Identity
 import Control.Applicative
 import Expr
 import Data.Graph.Inductive.Query.Monad
