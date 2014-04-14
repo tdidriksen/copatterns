@@ -1,18 +1,48 @@
 module Main(main) where
 
 import Test.HUnit
-import Data.Char
 
-four :: Int
-four = 4
- 
-tests, test1, test2, test3 :: Test
-test1 = TestCase $ assertEqual "test upCase" "FOO" (map toUpper "foo")
-test2 = TestCase $ assertEqual "testing that the result is 4" 2 (4::Int)
-test3 = TestCase $ assertEqual "testing that 4 is 4" four 3
+import Expr
+import TypeChecker
+import TerminationChecker
+import TestPrograms
 
-tests = TestList [TestLabel "test1" test1, TestLabel "test2" test2, TestLabel "test3" test3]
+
+tests :: Test
+tests = TestList [TestLabel "subtractSlowly" subtractSlowlyTest]
 
 main :: IO ()
 main = do _ <- runTestTT $ tests
           return ()
+
+
+-- Assertions
+
+assertTermination :: Program -> Assertion
+assertTermination p =
+  case isSizeChangeTerminating p of
+    Right success -> do putStrLn $ show success
+                        return ()
+    Left failure  -> assertFailure $ show failure
+
+assertNonTermination :: Program -> Assertion
+assertNonTermination p =
+  case isSizeChangeTerminating p of
+    Left success  -> do putStrLn $ show success
+                        return ()
+    Right failure -> assertFailure $ show failure
+
+
+-- General test functions
+
+positiveTest :: [Expr] -> Test
+positiveTest p =
+  TestCase $ (case checkRoot (ERoot p) of
+                Right typeCheckedProgram -> assertTermination typeCheckedProgram
+                Left e                   -> assertFailure $ show e)
+
+
+-- Positive tests
+
+subtractSlowlyTest :: Test
+subtractSlowlyTest = positiveTest [nat, subtractSlowly]
