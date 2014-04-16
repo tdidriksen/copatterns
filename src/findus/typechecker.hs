@@ -86,7 +86,7 @@ bagEq xs ys = sort xs == sort ys
 check :: Env -> Env -> Expr -> Either TypeError TypedExpr
 check _ _ EUnit              = return $ TEUnit TUnit
 check vEnv tEnv (EVar x) = case (lookup x vEnv) of
-  Just e  -> return $ TEVar e x
+  Just e  -> return $ TEVar (globTypeSubst tEnv e) x
   Nothing -> throwError $ Err (x ++ " not in scope")
 check vEnv tEnv (EApp e1 e2) = do
   te1 <- check vEnv tEnv e1
@@ -94,7 +94,7 @@ check vEnv tEnv (EApp e1 e2) = do
     Right te2 ->
       case getTypeAnno te1 of
         (TArr f a) -> case listTypeEquality f (map getTypeAnno te2) tEnv of
-                        Right _ -> return $ TEApp a te1 te2
+                        Right _ -> return $ TEApp (globTypeSubst tEnv a) te1 te2
                         Left x  -> throwError x
         _ -> throwError $ Err "Application on non arrow type"
     Left err -> throwError err
@@ -102,7 +102,7 @@ check vEnv tEnv (ELet s t ps e1 e2) = do
     te1 <- check ((s,t) : (maybeAppend ps vEnv)) tEnv e1
     te2 <- check ((s,t) : vEnv) tEnv e2
     case typeEquality t (getTypeAnno te1) tEnv of
-      Right _ -> return $ TELet (getTypeAnno te2) s t ps te1 te2
+      Right _ -> return $ TELet (getTypeAnno te2) s (globTypeSubst tEnv t) ps te1 te2
       Left err -> throwError err
 check vEnv tEnv (ETag s e t) = do
   case t of
@@ -113,7 +113,7 @@ check vEnv tEnv (ETag s e t) = do
             case eitherUnzip te of
               Right te ->
                 case listTypeEquality (map getTypeAnno te) et tEnv of
-                  Right _ -> return $ TETag t s te
+                  Right _ -> return $ TETag (globTypeSubst tEnv t) s te
                   Left  x -> throwError x
               Left err -> throwError err
         Nothing -> throwError $ Err "Label not found in variant type"
@@ -133,11 +133,9 @@ check vEnv tEnv (ECase e es) = do
               let vEnvs = map (++ vEnv) (map (\x -> zip (fst x) (snd x)) (assocJoin (listMapSnd fst es) fs)) in
                 case eitherUnzip $ zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) of
                   Right(t : ts) -> --return $ TETag (TGlobTypeVar "nat") (show $  length vEnvs) (t : ts)
-                  
                     case eitherUnzip $ map (\t2 -> typeEquality (getTypeAnno t) t2 tEnv) (map getTypeAnno ts) of
                       Right _ -> return $ TECase (getTypeAnno t) te (zip (map fst es) (zip (map fst (map snd es)) (t : ts)))
                       Left err -> throwError err
-                  
                   Left err -> throwError err
         _ -> throwError $ Err "Not a variant type"
     _ -> throwError $ Err "Expected inductive type in case"
@@ -153,7 +151,7 @@ check vEnv tEnv (EObserve t es) = do
                 []     -> throwError $ Err "No observations found"
                 xs     -> 
                   case eitherUnzip $ map (\x -> matchTEWithType x tEnv) xs of
-                    Right _  -> return $ TEObserve t (zip (map fst es) tes)
+                    Right _  -> return $ TEObserve (globTypeSubst tEnv t) (zip (map fst es) tes)
                     Left err -> throwError err
             Left err -> throwError err
     TGlobTypeVar s -> do
@@ -162,14 +160,14 @@ check vEnv tEnv (EObserve t es) = do
     _ -> throwError $ Err "Expected coinductive type in observation"
 check vEnv tEnv (EFold t) = do
   case t of
-    TRecInd s nt -> return $ TEFold (TArr [nt] t) t
+    TRecInd s nt -> return $ TEFold (globTypeSubst tEnv (TArr [nt] t)) (globTypeSubst tEnv t)
     TGlobTypeVar s -> do
                   t <- typeVarLookup s tEnv
                   check vEnv tEnv (EFold t)
     _         -> throwError $ Err "Fold attempted on non recursive type"
 check vEnv tEnv (EUnfold t) = do
   case t of
-    TRecInd s nt -> return $ TEUnfold (TArr [t] (TRecInd s (substTypeVari s t nt))) t
+    TRecInd s nt -> return $ TEUnfold (globTypeSubst tEnv (TArr [t] (TRecInd s (substTypeVari s t nt)))) (globTypeSubst tEnv t)
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (EUnfold t)
@@ -179,7 +177,7 @@ check vEnv tEnv (EData s t) =
     TRecInd s' nt | s == s' -> case nt of
                                  TVari fs -> do
                                    lbls <- assocDups fs
-                                   return $ TEData (TRecInd s (TVari lbls)) s
+                                   return $ TEData (globTypeSubst tEnv (TRecInd s (TVari lbls))) s
                   | otherwise -> throwError $ Err "Data labels not matching"
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
@@ -189,7 +187,7 @@ check vEnv tEnv (ECodata s t) =
   case t of
     TRecCoind s' es | s == s' -> do
                                lbls <- assocDups es
-                               return $ TECodata (TRecCoind s lbls) s
+                               return $ TECodata (globTypeSubst tEnv (TRecCoind s lbls)) s
                     | otherwise -> throwError $ Err "Codata labels not matching"
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
@@ -203,7 +201,7 @@ check vEnv tEnv (EGlobLet s t ps e) = do
         TArr a r -> 
           if not (a == (map snd ps)) then throwError $ Err "Not the right number of arguments" 
           else case typeEquality r (getTypeAnno te) tEnv of
-            Right  _ -> return $ TEGlobLet (TArr a r) s (Just ps) te
+            Right  _ -> return $ TEGlobLet (globTypeSubst tEnv (TArr a r)) s (Just ps) te
             Left err -> throwError err
         _ -> throwError $ Err "Arrow type expected"
     Nothing ->

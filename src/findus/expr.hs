@@ -28,22 +28,4 @@ data Type
   | TRecCoind Sym [(Sym, Type)]
   | TRecTypeVar Sym
   | TGlobTypeVar Sym
-  deriving (Eq)
-
-instance Show Type where
-  show TUnit = "Unit"
-  show (TArr t1 t2) = (showListOf " -> " t1) ++ " -> " ++ (show t2)
-  show (TVari ts) = "Variant " ++ (showListOf ", " ts)
-  show (TRecInd s t) = "Inductive Type " ++ s ++ ": (" ++ (show t) ++ ")"
-  show (TRecCoind s t) = "Coinductive Type " ++ s ++ ": (" ++ (show t) ++ ")"
-  show (TRecTypeVar s) = "RecTypeVar " ++ s
-  show (TGlobTypeVar s) = "GlobalTypeVar " ++ s
-
-showListOf :: Show a => String -> [a] -> String
-showListOf d [] = "[]"
-showListOf d x = "[" ++ showListOf' d x
-
-showListOf' :: Show a => String -> [a] -> String
-showListOf' d [] = "]"
-showListOf' d (x : []) = (show x) ++ "]"
-showListOf' d (x : xs) = (show x) ++ d ++ showListOf' d xs
+  deriving (Eq, Show)
