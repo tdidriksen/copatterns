@@ -28,4 +28,13 @@ data Type
   | TRecCoind Sym [(Sym, Type)]
   | TRecTypeVar Sym
   | TGlobTypeVar Sym
-  deriving (Eq, Show)
+  deriving (Show)
+
+instance Eq Type where
+  TUnit == TUnit                    = True
+  TArr ts t == TArr ts' t'          = (ts == ts') && t == t'
+  TVari xs == TVari ys              = xs == ys
+  TRecInd s t == TRecInd s' t'      = s == s'
+  TRecCoind s t == TRecCoind s' t'  = s == s'
+  TRecTypeVar s == TRecTypeVar s'   = s == s'
+  TGlobTypeVar s == TGlobTypeVar s' = s == s'

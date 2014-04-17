@@ -7,7 +7,7 @@ import Control.Applicative
 -- Root Example
 rootEnv = case buildRootEnv root of
             Right(l) -> l
-root = [dataNat, letNatPlus]--[codataNatStream, letFib, letNatPlus, letZipWithPlus, dataNatList, letEmpty, letShrink, letNatPred, letStupid1, letStupid2, letInfRec, dataNat]
+root = [dataNat, codataNatStream, letFib, letNatPlus, letZipWithPlus, dataNatList, letEmpty, letShrink, letNatPred, letStupid1, letStupid2, letInfRec]
 rootExpr = ERoot root
 checkRootEx = checkRoot rootExpr
 listOfRootEx = case checkRootEx of
@@ -33,7 +33,7 @@ natPlus = ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "n")]) [
 
 letNatPred = EGlobLet "pred" (TArr [TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just [("n", TGlobTypeVar "nat")]) natPred
 natPred = ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "n")]) [
-            ("Z", ([], EApp (EFold (TGlobTypeVar "nat")) [(ETag "Z" [] natBody)])),
+            ("Z", ([], EVar "Z")),
             ("S", (["n'"], EVar "n'"))
           ]
 
@@ -84,10 +84,10 @@ zipWithPlus = EObserve (TGlobTypeVar "natStream")
 letFib = EGlobLet "fib" (TGlobTypeVar "natStream") Nothing fib
 fib = EObserve (TGlobTypeVar "natStream") 
         [
-          ("head", natZ),
+          ("head", EVar "Z"),
           ("tail", EObserve (TGlobTypeVar "natStream")
                      [
-                       ("head", EApp (EVar "S") [natZ]),
+                       ("head", EApp (EVar "S") [EVar "Z"]),
                        ("tail", EApp (EVar "zipWithPlus") 
                           [
                             EVar "fib", 
@@ -107,8 +107,3 @@ stupid2 = EApp (EVar "stupid1") [(EVar "x")]
 
 letInfRec = EGlobLet "infrec" (TArr [nat] nat) (Just [("x", nat)]) infRec
 infRec = EApp (EVar "infrec") [(EVar "x")]
-
-
--- Util
-
-natZ = EApp (EVar "Z") []
