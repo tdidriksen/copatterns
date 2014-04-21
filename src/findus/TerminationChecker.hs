@@ -36,7 +36,8 @@ assocListFromTriples xs =
 -- Handle input
 
 type Program = [TypedExpr]
-  
+
+-- Split a list of typed expressions into ([TEData], [TEGlobLet])
 splitProgram :: Program -> ([TypedExpr], [TypedExpr])
 splitProgram []                             = ([], [])
 splitProgram (gl@(TEGlobLet _ _ _ _) : tes) = (fst $ splitProgram tes, gl : (snd $ splitProgram tes))
@@ -69,22 +70,26 @@ withAlias s _ = s
 instance Ord Size where -- TODO: Compare skal give mening!
   -- Min
   compare Min       Min        = EQ
+  compare Min       (D Min)    = EQ
+  compare Min       (Param x)  = EQ
+  compare Min       (Var x)    = EQ
   compare Min       _          = LT
   -- Destructors
   compare (D s)     (D s')     = compare s s'
   compare (D (C s)) s'         = compare s s'
   compare s         (D (C s')) = compare s s'
-  compare (D s)     Min        = GT
-  compare (D s)     (C s')     = if s == s' then compare s s' else LT
+  compare (D Min)   Min        = EQ
   compare (D s)     _          = LT
   -- Param
   compare (Param x) (Param y)  = if x == y then EQ else GT
-  compare (Param x) Min        = GT
+  compare (Param x) (Var y)    = EQ
+  compare (Param x) Min        = EQ
   compare (Param x) (D s)      = GT
   compare (Param x) _          = LT
   -- Var
   compare (Var x)   (Var y)    = if x == y then EQ else GT
-  compare (Var x)   Min        = GT
+  compare (Var x)   (Param y)  = EQ
+  compare (Var x)   Min        = EQ
   compare (Var x)   (D s)      = GT
   compare (Var x)   _          = LT
   -- Constructors
@@ -109,10 +114,15 @@ instance Ord Size where -- TODO: Compare skal give mening!
 -- Control-flow graphs
 
 -- Control points represent the terms that must terminate
-data ControlPoint a = Global Sym a | Local Sym (ControlPoint a) a deriving Eq
+-- class ControlPoint c where
+--   identifier    :: c a -> String
+--   dataPositions :: c a -> [DataPosition b]
+  
+data ControlPoint a =
+    Global Sym a
+  | Local Sym (ControlPoint a) a deriving (Eq, Show)
 
 -- A Call is a connection between two control points, establishing interdependency
-type CallLabel = String
 type Substitution a = [(Sym, DataPosition a)]
 type Call a b = (ControlPoint a, b, ControlPoint a)
 type CallSequence a b = [Call a b]
@@ -276,6 +286,7 @@ paramsAsData Nothing       = []
 paramsAsData (Just params) = map (\(sym, _) -> (sym, DataPos $ Param sym)) params
 
 globalControlPoints :: [TypedExpr] -> [(ControlPoint DataEnv, TypedExpr)]
+globalControlPoints [] = []
 globalControlPoints (TEGlobLet ty name params body : globs) =
   (Global name (paramsAsData params), body) : globalControlPoints globs
 globalControlPoints (_ : globs) = globalControlPoints globs
@@ -286,6 +297,7 @@ data Constructor = Constructor { constructorName :: Sym,
                                  constructorParameters :: [ParameterType] }
 
 globalDataConstructors :: [TypedExpr] -> [Constructor]
+globalDataConstructors [] = []
 globalDataConstructors ((TEData ty@(TRecInd _ (TVari constructors)) _):ds) =
   let name = fst
       parameterTypes = map (\t -> if t == ty then Recursive else NonRecursive)
@@ -301,11 +313,12 @@ dataEnv (Local _ parent env) = env ++ dataEnv parent
 
 controlPointFromExpr :: TypedExpr -> [ControlPoint a] -> Maybe (ControlPoint a)
 controlPointFromExpr (TEVar _ f) cps = find (\cp -> f == controlPointId cp) cps
-controlPointFromExpr _ _ = Nothing
+controlPointFromExpr _           _   = Nothing
 
 constructorFromExpr :: TypedExpr -> [Constructor] -> Maybe (Constructor)
 constructorFromExpr (TEVar _ f) constrs = find (\c -> f == constructorName c) constrs
 constructorFromExpr _           _       = Nothing
+
 
 callGraph :: ControlPoint DataEnv -> TypedExpr -> [ControlPoint DataEnv] ->
              [Constructor] -> DataEnv -> Hints -> [Call DataEnv (Substitution Size)]
@@ -484,10 +497,8 @@ data Termination = Termination [SizeChangeGraph DataEnv (Sym, Size)]
 
 instance Show Termination where
   show (Termination scgs) =
-    let showF (f,arcs,g) = controlPointId f ++ " terminates on input " ++ (show $ head (descendingArcs arcs))
-    in intercalate "\n" $ map showF scgs
-    
-        
+    let showF (f,arcs,g) = controlPointId f ++ " terminates on input " ++ (show $ intersperse ", " (map show (descendingArcs arcs)))
+    in "Terminating functions:\n" ++ (intercalate "\n" $ map showF scgs)
 
 data NonTermination =
     UnsafeMultipathError (Multipath DataEnv (Sym, Size))
@@ -497,20 +508,20 @@ data NonTermination =
 instance Show NonTermination where
   show (UnsafeMultipathError mp) = "Could not determine termination due to unsafe multipath: "
                                    ++ showMultipath mp False
-  show (InfiniteRecursion mp)    = "Program is not size-change terminating due to infinite recursion in call chain: "
-                                   ++ showMultipath mp False
+  show (InfiniteRecursion mp)    = "Program is not size-change terminating due to possible infinite recursion in call chain: "
+                                   ++ showMultipath mp True
   show (UnknownCause msg)        = show msg
 
-instance Error (NonTermination)
+instance Error NonTermination
 
 -- Theorem 4!
 isSizeChangeTerminating :: Program -> Either NonTermination Termination
 isSizeChangeTerminating []   = return $ Termination []
 isSizeChangeTerminating prog =
-  let (funExprs, dataExprs) = splitProgram prog
+  let (dataExprs, funExprs) = splitProgram prog
       globalFuns = globalControlPoints funExprs
       globalConstrs = globalDataConstructors dataExprs
-      calls = concat $ map (\(cp, e) -> callGraph cp e (map fst globalFuns) globalConstrs [] []) globalFuns
+      calls = concat $ map (\(cp, e) -> callGraph cp e (map fst globalFuns) globalConstrs (controlPointData cp) []) globalFuns
       sizeChangeGraphs = map sizeChangeGraph calls
       multipaths = concat $ map allMultipaths (cyclicMultipaths sizeChangeGraphs)
       collapsedMultipaths = map (\mp -> (mp, collapse mp)) multipaths
@@ -523,5 +534,5 @@ isSizeChangeTerminating prog =
   in case unsafeMultipaths of
        [] -> case graphsWithNoDescendingArcs possiblyNonTerminating of
          []            -> return $ Termination (map snd safeCollapsedMultipaths)
-         nonDescending -> throwError $ InfiniteRecursion (head $ map fst nonDescending)          
+         nonDescending -> throwError $ UnknownCause (show calls) -- (intercalate ", " $ map (\s -> showSizeChangeGraph s True) sizeChangeGraphs) -- InfiniteRecursion (head $ map fst nonDescending)          
        unsafe -> throwError $ UnsafeMultipathError (head unsafe)
