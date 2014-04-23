@@ -98,12 +98,26 @@ check vEnv tEnv (EApp e1 e2) = do
                         Left x  -> throwError x
         _ -> throwError $ Err "Application on non arrow type"
     Left err -> throwError err
-check vEnv tEnv (ELet s t ps e1 e2) = do 
-    te1 <- check ((s,t) : (maybeAppend ps vEnv)) tEnv e1
+check vEnv tEnv (ELet s t ps e1 e2) = 
+  let params = case ps of 
+                   Just ps' -> ps'
+                   Nothing  -> []
+  in do
+    te1 <- check ((s,t) : (params ++ vEnv)) tEnv e1
     te2 <- check ((s,t) : vEnv) tEnv e2
-    case typeEquality t (getTypeAnno te1) tEnv of
-      Right _ -> return $ TELet (getTypeAnno te2) s (globTypeSubst tEnv t) ps te1 te2
-      Left err -> throwError err
+    case t of 
+      TArr as r -> 
+          if as == (map snd params)
+            then
+              case typeEquality r (getTypeAnno te1) tEnv of
+                Right _ -> return $ TELet (getTypeAnno te2) s (globTypeSubst tEnv t) ps te1 te2
+                Left err -> throwError err
+            else
+              throwError $ Err ("Arguments to function " ++ s ++ " does not match annotated type.")
+      _ ->  
+          case typeEquality t (getTypeAnno te1) tEnv of
+            Right _ -> return $ TELet (getTypeAnno te2) s (globTypeSubst tEnv t) ps te1 te2
+            Left err -> throwError err
 check vEnv tEnv (ETag s e t) = do
   case t of
     TVari fs ->
