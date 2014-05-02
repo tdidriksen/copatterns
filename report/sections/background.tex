@@ -3,7 +3,41 @@
 \label{sec:background}
 
 \subsection{Codata}
+What is codata?
 
 \subsection{Copatterns}
+What are copatterns? (conceptually)
+% Copatterns in Agda
 
-\subsection{Idris Internals}
+% Inductively defined data can be analyzed by defining functions on that data by traditional pattern matching, where a \emph{pattern} is a (finite and valid) combination of constructor applications for the given data. In this respect, 
+
+% \begin{figure}
+% \begin{alltt}
+% pow2 : Stream Nat
+% head pow2 = S Z
+% head (tail pow2) = S (S Z)
+% tail (tail pow2) = zipWith _+_ (tail pow2) (tail pow2)
+% \end{alltt}
+% \caption{A definition of an infinite stream of powers of 2 using copatterns.}
+% \end{figure}
+
+% by defining functions on that data using traditional pattern 
+
+% Inductively defined data can be analyzed by defining functions in terms of a set of \textit{patterns}, where a pattern constitutes a recognizable structure in the data we are analyzing. 
+
+
+
+
+% Because we know that the data has been constructed using a finite number of data constructors, the number of ways we can take that same data apart is also finite by definition. 
+
+
+% Consider a standard list data structure, defined in Haskell-like syntax:
+
+% \begin{alltt}
+% data List a = Nil 
+%             | Cons a (List a)
+% \end{alltt}
+
+% \texttt{List a} consists of two data constructors, \texttt{Nil} and \texttt{Cons}. Because these two constructors constitute the only that we can construct a \texttt{List a}, 
+
+\subsection{The Current Status of Codata in Idris}
