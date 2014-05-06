@@ -1,10 +1,28 @@
 %!TEX root = ../main.tex
 \section{Related Work}
 \label{sec:related_work}
-This section contains a thorough treatment of the related literature. 
+This section gives a survey of relevant literature, mostly covering approaches to ensuring termination of programs defined over both inductive and coinductive data.
 
-\subsection{Syntactic Guardedness Checking}
+\subsection{Guarded Corecursion}
+The basic idea of guarded corecursion is that the productivity of cofunctions can be ensured by a purely syntactic check. It was first proposed by Coquand\,\citep{Coquand94} as an important part of a ``guarded proof induction principle'' for a proof system containing coinductive definitions, inspired by a similar approach in the area of process calculi by Milner\,\citep{Milner82}. In continuation of Coquand's efforts, Gim\'{e}nez applied the method to the Calculus of Constructions in order to avoid the introduction of non-normalizable terms\,\citep{Gimenez95}. 
+
+% ESFP
+\citep{Telford97ensuringstreams}
+\citep{Telford:jucs_6_4:ensuring_termination_in_esfp} 
+
+
+
 
 \subsection{Sized Types}
 
 \subsection{Size-change Termination}
+The size-change principle for termination was first proposed for a strict first-order functional language (without loop constructs) by Lee, Jones, and Ben-Amram\,\citep{LeeJones01SizeChange}. The principle essentially states that if infinitely many recursive calls to a function would lead to infinite decrease in some parameter value, then the function must be terminating, since any value of an inductive type must have a finite structure. This last condition is of particular importance, as the size-change principle cannot in general decide termination of functions whose parameters do not have a well-founded order. In the graph formulation of their algorithm, termination is decided by identifying any recursive calls (both direct and indirect) through call graph completion, and then constructing a ``size-change graph'' for each call. These are then used to determine whether infinite descent in some parameter value is present.
+
+Since its first-order formulation, the principle has been proven to work for more expressive cases. Jones and Bohr\,\citep{Jones04Untyped} showed that size-change termination can be applied to the untyped lambda calculus using abstract interpretation. Interesting results of this work include size-change termination of programs employing the Y-combinator.
+
+Following the work on the untyped lambda calculus, Sereni and Jones generalized the size-change principle to handle a higher-order functional language with user-defined data types and general recursion\,\citep{Sereni05terminationanalysis,Sereni06Phd}. Here, a termination criterion is presented which works for arbitrary control-flow graphs, and in turn is able to decide termination of lazy functional programs. A key point in this work is how different approaches to control-flow and call graph construction may influence the preciseness of the termination analysis.
+
+Most formulations of the size-change principle only work on data for which some well-founded order exists. Nevertheless, Avery\,\citep{Avery06} presented a formulation in which it is possible to determine size-change termination for non-well-founded data types --- in particular, this formulation is shown to work for a language with an integer type. Instead of identifying infinite descent using a well-founded partial order on values, the analysis is based on a decrease in invariants which are found to hold for each program point. Thus, if the value of some invariant (which can involve arbitrarily many values) can be shown to decrease on every passage of a program point, then the program terminates. While an approach to size-change termination involving non-well-founded data is definitely closer to a usable definition for deciding the productivity of cofunctions with copatterns, Avery's formulation is insufficient or impractical in several aspects. First, it is still assumed that termination is determined solely on the basis of an infinitely decreasing property. However, many cofunctions defined with copatterns exhibit no such property; Indeed, one of the virtues of cofunctions is exactly the ability to define infinite structures. Secondly, the formulation works on a graph of program points. Since it is valid for a cofunction to be defined in terms of itself, non-termination for copatterns only becomes apparent when observations are defined in terms of themselves (and as such, they can be said not to be defined at all, see Section \ref{sec:background}\todo{remember this backwards reference to Section \ref{sec:background}}). Thus, constructing a graph of observations would be necessary for this approach to work, and such an undertaking might not be ideal (see Section \ref{sec:productivity}\todo{remember this forward reference to Section \ref{sec:productivity}})
+
+
+The ideas presented in this paper are fundamental to our understanding of the totality checker implemented for Idris. 
