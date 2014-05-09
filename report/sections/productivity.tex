@@ -1,4 +1,35 @@
 %!TEX root = ../main.tex
 \section{Productivity of Cofunctions}
 \label{sec:productivity}
-An explanation of our proposal for productivity checking in collaboration with size-change termination.
+
+Before delving into a description of our proposal for a productivity checking algorithm for definitions with copatterns, we will discuss the properties of other approaches, and why they may or may not be desirable.
+
+\subsection{Lazy Evaluation: The Haskell Approach}
+It may be compelling to think that we can simply model coinductive data in the same way as it is done in Haskell, by evaluating all expressions lazily. Then any productivity algorithm would work for Haskell as well, making the result more generally applicable. The lazy evaluation approach, however, is insufficient in several aspects.
+
+First and foremost, if we insist on making no distiction between inductive and coinductive data in our type system (Haskell makes no distinction), subject reduction is lost in a dependently typed system such as Idris\,\citep{Abel13Copatterns}. While we will not unfold the argument in its entirety here, the problem lies in the fact that coinductive data is modeled as the \emph{construction} of infinite trees, making dependent pattern matching possible on codata, rather than in terms of its \emph{destructors}. Naturally, we want to preserve subject reduction in the Idris type system.
+
+Secondly, Idris has the Church-Rosser property, meaning that distinct reduction strategies lead to the same normal form\,\citep{BradyIdrisImpl13}. Furthermore, the total part of Idris is strongly normalizing, such that it enjoys the \emph{strong} Church-Rosser property\,\citep{Turner04totalfunctional}. This means that not only will every reduction strategy leading to a normal form lead to the same normal form, but \emph{any} reduction strategy must lead to a normal form. In Haskell, many definitions will lead to a normal form under lazy evaluation, while eager evaluation would lead to infinite recursion. Therefore, exploiting lazy evaluation in the total part of Idris would mean that it would no longer have the strong Church-Rosser property.
+
+\subsection{Productivity Checking with Sized Types}
+As shown by Abel and Pientka\,\citep{Abel13Wellfounded}, verifying the productivity of coinductive definitions with copatterns is indeed possible using sized types. Thus, the main argument against using sized types is one of usability, from the point of view of the Idris user. Thibodeau\,\citep{Thibodeau11} emphasizes that size annotations generally make the code harder to read and seem unnecessary (see Section \ref{sec:related_work}). In our own experience, size annotations do place quite a burden of bookkeeping upon the user. While having more expressive types is generally considered a value tool for building correct programs, sized types do have a tendency to become something you use in order to satisfy the productivity checker, rather than because it leads to clearer type specifications. Because totality is optional in Idris (as opposed to in Agda, for instance), this means that in a practical programming setting, some users would most likely be inclined to switch off productivity checking for coinductive definitions, or refrain from using them entirely.
+
+This argument is only valid as long as we have no way to fully reconstruct all size annotations. Once we do (if ever), the burden of sized types can be placed entirely upon the compiler. At such point, termination checking with sized types would seem like a fine approach.
+
+\subsection{Guarded Corecursion}
+In its original form presented by Coquand\,\citep{Coquand94} and Gim\'{e}nez\,\citep{Gimenez95}, the guardedness condition is generally too restrictive, as exemplified in Section \ref{sec:related_work}. The work done on the ESFP system by Telford and Turner\,\citep{Telford97ensuringstreams,Telford98ensuringthe} makes the guardedness criterion more generally applicable, even though some problems still remain, such as handling indirect application to corecursive functions. An example of this problem is the \texttt{g} function in Figure \ref{fig:TelfordTurnerProblems}, whose guardedness cannot be determined due to the indirect call to \texttt{id}. The function \texttt{f} is not considered guarded within their system because forward references may not be made to the rest of the process, i.e. the head of \texttt{f} cannot refer to the tail of \texttt{f}.
+
+\begin{figure}
+\begin{alltt}
+f = (head (tail f)) :: (1 :: f)                 g = 1 :: ((fst funPair) g)
+                                                where funPair = (id, id)
+\end{alltt}
+\caption{Two types of functions not deemed productive by the extended guardedness criterion by Telford and Turner\,\citep[Section 6.3]{Telford98ensuringthe}. Here, \texttt{::} is the cons operator for a hypothetical definition of streams without copatterns, and \texttt{id} is the identity function. The definitions of \texttt{head} and \texttt{tail} are as one would expect.} 
+\label{fig:TelfordTurnerProblems}
+\end{figure}
+
+Abel\,\citep{Abel99terminationchecking} argues that termination analysis should abstract from the syntactic structure of the program being analyzed, since this makes the outcome of the analysis prone to small changes in program structure. While this argument seems sensible, the advantage of a syntactic check is that productivity does not depend on the user's ability or willingness to apply the right size annotations in the right places, as opposed to what is currently the case for sized types.
+
+\paragraph{}
+What we ultimately seek is a productivity checking algorithm for definitions with copatterns that covers as many cases as possible, without burdening the user too much. In the following, we will provide a detailed description of our proposal.
+
