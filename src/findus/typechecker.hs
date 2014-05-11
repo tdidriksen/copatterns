@@ -36,7 +36,48 @@ getTypeAnno (TEData       t _    ) = t
 getTypeAnno (TECodata     t _    ) = t
 getTypeAnno (TEGlobLet    t _ _ _) = t
 
-data TypeError = Err String deriving Show
+data TypeError 
+  = NotInScope Sym
+  | TypeMismatch Type Type
+  | TypeNotAllowed Type String
+  | Unexpected Type String
+  | AnnotationMismatch Type Type String
+  | LabelNotFound Sym Type
+  | CoverageError [Sym] [Sym]
+  | ArgumentMismatch [Type] Params Sym
+  | DuplicateName Sym
+  | NotValidRootExpr Expr
+  | NotValidExpression Expr
+  | Err String
+
+instance Show TypeError where
+  show (NotInScope               s) = s ++ " not in scope."
+  show (TypeMismatch         t1 t2) = "Type mismatch between " ++ (show t1) ++ " and " ++ (show t2) ++ "."
+  show (TypeNotAllowed         t s) = "Type " ++ (show t) ++ " not allowed: " ++ s ++ "."
+  show (Unexpected             t s) = "Unexpected type " ++ (show t) ++ ". Expected " ++ s ++ "."
+  show (AnnotationMismatch t1 t2 s) = "Mismatch between annotated type " ++ (show t1) ++ " and actual type " ++ (show t2) ++ ": " ++ s ++ "."
+  show (LabelNotFound          s t) = "Label " ++ s ++ " not found in type " ++ (show t) ++ "."
+  show (CoverageError        s1 s2) = "Coverage error between: " ++ (show s1) ++ " and " ++ (show s2) ++ "."
+  show (ArgumentMismatch   ts ps s) = "Argument mismatch between: " ++ (show ts) ++ " and " ++ (show ps) ++ " in function " ++ s ++ "."
+  show (DuplicateName            s) = "Illigal duplicate name " ++ s ++ "."
+  show (NotValidRootExpr         e) = "Expression " ++ (show e) ++ " is not a valid root expression."
+  show (NotValidExpression       e) = "Expression " ++ (show e) ++ " is not a valid expression."
+  show (Err                      s) = "Error: " ++ s
+
+instance Eq TypeError where
+  NotInScope s               == NotInScope s'                =  s == s'
+  TypeMismatch t1 t2         == TypeMismatch t1' t2'         = t1 == t1' && t2 == t2'
+  TypeNotAllowed t _         == TypeNotAllowed t' _          =  t == t'
+  Unexpected t _             == Unexpected t' _              =  t == t'
+  AnnotationMismatch t1 t2 _ == AnnotationMismatch t1' t2' _ = t1 == t1' && t2 == t2'
+  LabelNotFound s t          == LabelNotFound s' t'          =  s == s'  &&  t == t'
+  CoverageError s1 s2        == CoverageError s1' s2'        = s1 == s1' && s2 == s2'
+  ArgumentMismatch ts ps s   == ArgumentMismatch ts' ps' s'  = ts == ts' && ps == ps' && s == s'
+  DuplicateName s            == DuplicateName s'             =  s == s'
+  NotValidRootExpr e         == NotValidRootExpr e'          =  e == e'
+  NotValidExpression e       == NotValidExpression e'        =  e == e'
+  Err _                      == Err _                        = True
+  _                          == _                            = False
 
 instance Error TypeError where
   noMsg = Err ""
@@ -45,11 +86,11 @@ instance Error TypeError where
 typeVarLookup :: Sym -> Env -> Either TypeError Type
 typeVarLookup s env = case lookup s env of
                        Just(t) -> return t
-                       Nothing -> throwError $ Err ("Data Type " ++ s  ++ " not found") 
+                       Nothing -> throwError $ NotInScope s
 
 typeEquality :: Type -> Type -> Env -> Either TypeError Type
 typeEquality t1 t2 env | (globTypeSubst env t1) == (globTypeSubst env t2) = return t1
-                       | otherwise = throwError $ Err ("Type mismatch: " ++ (show (globTypeSubst env t1) ) ++ " is not a " ++ ( show (globTypeSubst env t2)))
+                       | otherwise = throwError $ TypeMismatch (globTypeSubst env t1) (globTypeSubst env t2)
 
 listTypeEquality :: [Type] -> [Type] -> Env -> Either TypeError [Type]
 listTypeEquality (x : xs) (y : ys) env = do
@@ -57,11 +98,11 @@ listTypeEquality (x : xs) (y : ys) env = do
   ts <- (listTypeEquality xs ys env)
   return $ t : ts
 listTypeEquality [] [] env = return []
-listTypeEquality _ _ env = throwError $ Err "Type mismatch"
+listTypeEquality xs ys env = throwError $ Err $ "Type mismatch on lists: " ++ (show xs) ++ " and " ++ (show ys)
 
 isNotArrowType :: Type -> Either TypeError Type
-isNotArrowType (TArr _ _) = throwError $ Err "Found unexpected arrow type"
-isNotArrowType t          = return t
+isNotArrowType (TArr t1 t2) = throwError $ (TypeNotAllowed (TArr t1 t2) "Arrow type not allowed")
+isNotArrowType t            = return t
 
 maybeAppend :: Maybe [a] -> [a] -> [a]
 maybeAppend (Just xs) ys = xs ++ ys
@@ -87,7 +128,7 @@ check :: Env -> Env -> Expr -> Either TypeError TypedExpr
 check _ _ EUnit              = return $ TEUnit TUnit
 check vEnv tEnv (EVar x) = case (lookup x vEnv) of
   Just e  -> return $ TEVar (globTypeSubst tEnv e) x
-  Nothing -> throwError $ Err (x ++ " not in scope")
+  Nothing -> throwError $ NotInScope x
 check vEnv tEnv (EApp e1 e2) = do
   te1 <- check vEnv tEnv e1
   case eitherUnzip $ map (check vEnv tEnv) e2 of
@@ -96,7 +137,7 @@ check vEnv tEnv (EApp e1 e2) = do
         (TArr f a) -> case listTypeEquality f (map getTypeAnno te2) tEnv of
                         Right _ -> return $ TEApp (globTypeSubst tEnv a) te1 te2
                         Left x  -> throwError x
-        _ -> throwError $ Err "Application on non arrow type"
+        t -> throwError $ TypeNotAllowed t "Application on non arrow type"
     Left err -> throwError err
 check vEnv tEnv (ELet s t ps e1 e2) = 
   let params = case ps of 
@@ -113,7 +154,7 @@ check vEnv tEnv (ELet s t ps e1 e2) =
                 Right _ -> return $ TELet (getTypeAnno te2) s (globTypeSubst tEnv t) ps te1 te2
                 Left err -> throwError err
             else
-              throwError $ Err ("Arguments to function " ++ s ++ " does not match annotated type.")
+              throwError $ ArgumentMismatch as params s
       _ ->  
           case typeEquality t (getTypeAnno te1) tEnv of
             Right _ -> return $ TELet (getTypeAnno te2) s (globTypeSubst tEnv t) ps te1 te2
@@ -130,11 +171,11 @@ check vEnv tEnv (ETag s e t) = do
                   Right _ -> return $ TETag (globTypeSubst tEnv t) s te
                   Left  x -> throwError x
               Left err -> throwError err
-        Nothing -> throwError $ Err "Label not found in variant type"
+        Nothing -> throwError $ LabelNotFound s t
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (ETag s e t)
-    _ -> throwError $ Err "Can only tag as variant types"
+    t -> throwError $ Unexpected t "variant type"
 check vEnv tEnv (ECase e es) = do
   te <- check vEnv tEnv e
   case getTypeAnno te of
@@ -142,7 +183,7 @@ check vEnv tEnv (ECase e es) = do
       case vt of
         TVari fs ->
           if (not $ bagEq (map fst fs) (map fst es))
-            then throwError $ Err "Not all case labels were in type" 
+            then throwError $ CoverageError (map fst fs) (map fst es)
             else 
               let vEnvs = map (++ vEnv) (map (\x -> zip (fst x) (snd x)) (assocJoin (listMapSnd fst es) fs)) in
                 case eitherUnzip $ zipWith (\v e -> check v tEnv e) vEnvs (map snd (map snd es)) of
@@ -151,13 +192,13 @@ check vEnv tEnv (ECase e es) = do
                       Right _ -> return $ TECase (getTypeAnno t) te (zip (map fst es) (zip (map fst (map snd es)) (t : ts)))
                       Left err -> throwError err
                   Left err -> throwError err
-        _ -> throwError $ Err "Not a variant type"
-    _ -> throwError $ Err "Expected inductive type in case"
+        t -> throwError $ Unexpected t "variant type"
+    t -> throwError $ Unexpected t "inductive type"
 check vEnv tEnv (EObserve t es) = do
   case t of
     TRecCoind s fs ->
       if (not $ bagEq (map fst fs) (map fst es))
-        then throwError $ Err "Not all observation labels were in type" 
+        then throwError $ CoverageError (map fst fs) (map fst es)
         else
           case eitherUnzip $ map (check vEnv tEnv) (map snd es) of
             Right tes -> 
@@ -171,58 +212,58 @@ check vEnv tEnv (EObserve t es) = do
     TGlobTypeVar s -> do
                   t <- typeVarLookup s tEnv
                   check vEnv tEnv (EObserve t es)
-    _ -> throwError $ Err "Expected coinductive type in observation"
+    t -> throwError $ Unexpected t "coinductive type"
 check vEnv tEnv (EFold t) = do
   case t of
     TRecInd s nt -> return $ TEFold (globTypeSubst tEnv (TArr [nt] t)) (globTypeSubst tEnv t)
     TGlobTypeVar s -> do
                   t <- typeVarLookup s tEnv
                   check vEnv tEnv (EFold t)
-    _         -> throwError $ Err "Fold attempted on non recursive type"
+    t         -> throwError $ Unexpected t "inductive type"
 check vEnv tEnv (EUnfold t) = do
   case t of
     TRecInd s nt -> return $ TEUnfold (globTypeSubst tEnv (TArr [t] (TRecInd s (substTypeVari s t nt)))) (globTypeSubst tEnv t)
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (EUnfold t)
-    _         -> throwError $ Err ("Unfold attempted on non recursive type: " ++ (show t))
+    t         -> throwError $ Unexpected t "inductive type"
 check vEnv tEnv (EData s t) = 
   case t of
     TRecInd s' nt | s == s' -> case nt of
                                  TVari fs -> do
                                    lbls <- assocDups fs
                                    return $ TEData (globTypeSubst tEnv (TRecInd s (TVari lbls))) s
-                  | otherwise -> throwError $ Err "Data labels not matching"
+                  | otherwise -> throwError $ Err "Data label not matching name of inductive type"
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (EData s t)
-    _                    -> throwError $ Err (s ++ "not an inductive type")
+    t                    -> throwError $ Unexpected t "inductive type"
 check vEnv tEnv (ECodata s t) =
   case t of
     TRecCoind s' es | s == s' -> do
                                lbls <- assocDups es
                                return $ TECodata (globTypeSubst tEnv (TRecCoind s lbls)) s
-                    | otherwise -> throwError $ Err "Codata labels not matching"
+                    | otherwise -> throwError $ Err "Codata label not matching name of coinductive type"
     TGlobTypeVar s       -> do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (ECodata s t)
-    _                    -> throwError $ Err (s ++ "not an coinductive type")
+    t                    -> throwError $ Unexpected t "coinductive type"
 check vEnv tEnv (EGlobLet s t ps e) = do
   te <- check (maybeAppend ps vEnv) tEnv e
   case ps of
     Just ps ->
       case t of
         TArr a r -> 
-          if not (a == (map snd ps)) then throwError $ Err "Not the right number of arguments" 
+          if not (a == (map snd ps)) then throwError $ ArgumentMismatch a ps s
           else case typeEquality r (getTypeAnno te) tEnv of
             Right  _ -> return $ TEGlobLet (globTypeSubst tEnv (TArr a r)) s (Just ps) te
             Left err -> throwError err
-        _ -> throwError $ Err "Arrow type expected"
+        t -> throwError $ Unexpected t "arrow type"
     Nothing ->
       case typeEquality (getTypeAnno te) t tEnv of
-        Right _ -> return $ TEGlobLet t s ps te
-        Left _  -> throwError $ Err ("Annotated type " ++ (show t) ++ " does not match actual type " ++ (show $ getTypeAnno te) ++ " of function " ++ s)
-check _ _ _ = throwError $ Err "Not a valid expression"
+        Right _  -> return $ TEGlobLet t s ps te
+        Left err -> throwError err
+check _ _ e = throwError $ NotValidExpression e
 
 listMapFst :: (a -> c) -> [(a, b)] -> [(c, b)]
 listMapFst f p = zip (map f (fst $ unzip p)) (snd $ unzip p)
@@ -231,7 +272,7 @@ listMapSnd :: (b -> c) -> [(a, b)] -> [(a, c)]
 listMapSnd f p = zip (fst $ unzip p) (map f (snd $ unzip p))
 
 checkSym :: Env -> Sym -> Either TypeError Type
-checkSym []            name = throwError $ Err (name ++ " not found")
+checkSym []            name = throwError $ NotInScope name
 checkSym ((l, t) : es) name | l == name = return t
                             | otherwise = checkSym es name
 
@@ -246,7 +287,7 @@ eitherUnzip (x : xs) = case x of
 assocDups :: [(Sym, a)] -> Either TypeError [(Sym, a)]
 assocDups (x : []) = return $ [x]
 assocDups (x : xs) = case lookup (fst x) xs of
-                                      Just _ -> throwError $ Err ("Illigal duplicate name: " ++ (fst x))
+                                      Just _ -> throwError $ DuplicateName (fst x)
                                       Nothing -> do
                                         rest <- assocDups xs
                                         return $ x : rest
@@ -289,7 +330,7 @@ buildRootEnv (x : xs) = case buildRootEnv xs of
                               EData    s t   -> return $ ((listMapSnd reduceArrows (typeFunctions t)) ++ (fst l), (s, t) : (snd l))
                               ECodata  s t   -> return $ ((typeFunctions t) ++ (fst l), (s, t) : (snd l))
                               EGlobLet s t _ _ -> return $ ((s, t) : (fst l), snd l)
-                              _             -> throwError $ Err "Not a valid root type"
+                              e             -> throwError $ NotValidRootExpr e
                           Left  e -> throwError e
 
 typeFunctions :: Type -> [(Sym, Type)]

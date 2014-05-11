@@ -18,6 +18,19 @@ nat = EData "nat" natRec
 zero = (EVar "Z")
 one = EApp (EVar "S") [zero]
 
+-- Nat Stream
+
+natStreamBody :: [(Sym, Type)]
+natStreamBody = [
+                  ("head", TGlobTypeVar "nat"),
+                  ("tail", TRecTypeVar "natStream")
+                ]
+
+natStreamRec :: Type
+natStreamRec = TRecCoind "natStream" natStreamBody
+
+natStream :: Expr
+natStream = ECodata "natStream" natStreamRec
 
 -- List of natural numbers
 
