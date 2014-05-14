@@ -29,10 +29,11 @@ subListFrom f     [] = []
 subListFrom f (x:xs) = if f x then x : xs else subListFrom f xs
 
 -- | Creates an association list from a list of triples
-assocListFromTriples :: Eq a => [(a, b, c)] -> [(a, [(a, b, c)])]
+assocListFromTriples :: (Eq a, Ord a) => [(a, b, c)] -> [(a, [(a, b, c)])]
 assocListFromTriples [] = []
 assocListFromTriples xs =
-  let groups = groupBy (\(a,_,c) -> \(d,_,e) -> a == d) xs
+  let groups = groupBy (\(a,_,_) -> \(d,_,_) -> a == d) $
+               sortBy (\(a,_,_) -> \(d,_,_) -> compare a d) xs
       tripleFst (a,_,_) = a
   in map (\group -> (tripleFst $ head group, group)) groups
 
@@ -51,6 +52,7 @@ splitProgram (_                      : tes) = splitProgram tes
 
 data Size =
     Min                    -- Minimal value, e.g. Z for Nat and Nil for List
+  | NotMin Size
   | D Size                 -- Destructor. D (Param "x") < Param "x"
   | Param Sym              -- Function parameter
   | Var Sym                -- Non-parameter value
@@ -63,6 +65,7 @@ data Size =
 type Alias = (Size, Size)
 withAlias :: Size -> Alias -> Size
 withAlias Min       (Min, s)     = s
+withAlias (NotMin s) (NotMin s', s'') = if s == s' then s'' else NotMin (s `withAlias` (NotMin s', s'')) 
 withAlias (D s)     (D s', s'')  = s `withAlias` (s', s'')
 withAlias (Param x) (Param y, s) = if x == y then s else Param x
 withAlias (Var x)   (Var y, s)   = if x == y then s else Var x
@@ -70,48 +73,137 @@ withAlias (C s)     (C s', s'')  = s `withAlias` (s', s'')
 withAlias (Multiple ss) (s, s')  = Multiple $ map (\t -> t `withAlias` (s, s')) ss
 withAlias s _ = s
 
+reduceSize :: Size -> Size
+reduceSize Min           = Min
+reduceSize (NotMin s)    = NotMin (reduceSize s)
+reduceSize (D (C s))     = reduceSize s
+reduceSize (D s)         = case (reduceSize s) of
+                             Min -> Min
+                             s'   -> D s'
+reduceSize (Param x)     = Param x
+reduceSize (Var x)       = Var x
+reduceSize (C (D s))     = reduceSize s
+reduceSize (C s)         = C (reduceSize s)
+reduceSize Unknown       = Unknown
+reduceSize (Multiple ss) = Multiple $ map reduceSize ss
+reduceSize (Deferred e)  = Deferred e
+
 instance Ord Size where -- TODO: Compare skal give mening!
+  compare x y = compare' (reduceSize x) (reduceSize y)
+    where
+      -- Min
+      compare' Min Min = EQ
+      compare' Min (NotMin _) = LT
+      compare' Min (C _) = LT
+      compare' Min (D s) = case s of
+                             Min -> EQ
+                             _   -> LT
+      compare' Min (Param _) = EQ
+      compare' Min (Var _) = EQ
+      -- NotMin
+      compare' (NotMin s) Min = GT
+      compare' (NotMin s) (NotMin s') = compare' s s'
+      compare' (NotMin s) (C s') = case s' of
+                                    Min -> compare' (D s) Min
+                                    _ -> compare' s (C s')
+      compare' (NotMin s) (D s') = case s' of
+                                    Min -> GT
+                                    _ -> compare' s (D s')                           
+      compare' (NotMin s) (Param x) = compare' s (Param x)
+      compare' (NotMin s) (Var x)   = compare' s (Var x)
+      -- D
+      compare' (D s) Min = case s of
+                             Min -> EQ
+                             _   -> GT
+      compare' (D s) (NotMin s') = case s of
+                                     Min -> LT
+                                     _   -> compare' (D s) s'
+      compare' (D _) (C _)      = LT
+      compare' (D s) (D s')       = compare' s s'
+      compare' (D _) (Param _)   = LT
+      compare' (D _) (Var _)     = LT
+      -- Param
+      compare' (Param _) Min     = GT
+      compare' (Param x) (NotMin s) = compare' (Param x) s
+      compare' (Param _) (C _)   = LT
+      compare' (Param _) (D _)   = GT
+      compare' (Param x) (Param y) = if x == y then EQ else GT
+      compare' (Param _) (Var _) = EQ
+      -- Var
+      compare' (Var _) Min     = GT
+      compare' (Var x) (NotMin s) = compare' (Var x) s
+      compare' (Var _) (C _)   = LT
+      compare' (Var _) (D _)   = GT
+      compare' (Var _) (Param _) = EQ
+      compare' (Var x) (Var y) = if x == y then EQ else GT
+      -- C
+      compare' (C _) Min         = GT
+      compare' (C s) (NotMin s') = case s of
+                                     Min -> compare' Min (D s)
+                                     _   -> compare' (C s) s'
+      compare' (C s) (C s')      = compare' s s'
+      compare' (C s) (D s')      = GT
+      compare' (C _) (Param _)   = GT
+      compare' (C _) (Var _)     = GT
+      -- Unknown
+      compare' Unknown   Unknown    = EQ
+      compare' _         Unknown    = LT
+      -- Multiple
+      compare' (Multiple ss) s'     = foldl1 compare (map (\s'' -> compare' s'' s') ss)
+      compare' s     (Multiple ss') = foldl1 compare (map (compare' s) ss')
+      -- Catch-all
+      compare' _ _ = GT
+      
+      
+  
   -- Min
-  compare Min       Min        = EQ
-  compare Min       (D Min)    = EQ
-  compare Min       (Param x)  = EQ
-  compare Min       (Var x)    = EQ
-  compare Min       _          = LT
-  -- Destructors
-  compare (D s)     (D s')     = compare s s'
-  compare (D (C s)) s'         = compare s s'
-  compare s         (D (C s')) = compare s s'
-  compare (D Min)   Min        = EQ
-  compare (D s)     _          = LT
-  -- Param
-  compare (Param x) (Param y)  = if x == y then EQ else GT
-  compare (Param x) (Var y)    = EQ
-  compare (Param x) Min        = EQ
-  compare (Param x) (D s)      = GT
-  compare (Param x) _          = LT
-  -- Var
-  compare (Var x)   (Var y)    = if x == y then EQ else GT
-  compare (Var x)   (Param y)  = EQ
-  compare (Var x)   Min        = EQ
-  compare (Var x)   (D s)      = GT
-  compare (Var x)   _          = LT
-  -- Constructors
-  compare (C s)     (C s')     = compare s s'
-  compare (C (D s)) s'         = compare s s'
-  compare s         (C (D s')) = compare s s'
-  compare (C s)     Min        = GT
-  compare (C s)     (D s')     = if s == s' then compare s s' else GT
-  compare (C s)     (Param x)  = GT
-  compare (C s)     (Var x)    = GT
-  compare (C s)     _          = LT
-  -- Unknown
-  compare Unknown   Unknown    = EQ
-  compare _         Unknown    = LT
-  -- Multiple
-  compare (Multiple ss) s'     = foldl1 compare (map (\s'' -> compare s'' s') ss)
-  compare s     (Multiple ss') = foldl1 compare (map (compare s) ss')
-  -- Catch-all
-  compare _         _          = GT
+  -- compare Min       Min        = EQ
+  -- compare Min       (D Min)    = EQ
+  -- compare Min       (Param x)  = EQ
+  -- compare Min       (Var x)    = EQ
+  -- compare Min       _          = LT
+  -- -- Destructors
+  -- compare (D s)     (D s')     = compare s s'
+  -- compare (D (C s)) s'         = compare s s'
+  -- compare s         (D (C s')) = compare s s'
+  -- compare (D Min)   Min        = EQ
+  -- compare (D s)    (NotMin s') = compare (D s) s'
+  -- compare (D s)     _          = LT
+  -- -- Param
+  -- compare (Param x) (Param y)  = if x == y then EQ else GT
+  -- compare (Param x) (Var y)    = EQ
+  -- compare (Param x) Min        = EQ
+  -- compare (Param x) (D s)      = GT
+  -- compare (Param x) (NotMin s) = compare (Param x) s
+  -- compare (Param x) _          = LT
+  -- -- Var
+  -- compare (Var x)   (Var y)    = if x == y then EQ else GT
+  -- compare (Var x)   (Param y)  = EQ
+  -- compare (Var x)   Min        = EQ
+  -- compare (Var x)   (D s)      = GT
+  -- compare (Var x)   (NotMin s) = compare (Var x) s
+  -- compare (Var x)   _          = LT
+  -- -- Constructors
+  -- compare (C s)     (C s')     = compare s s'
+  -- compare (C (D s)) s'         = compare s s'
+  -- compare s         (C (D s')) = compare s s'
+  -- compare (C s)     Min        = GT
+  -- compare (C s)     (D s')     = if s == s' then GT else compare s s'
+  -- compare (C s)     (Param x)  = GT
+  -- compare (C s)     (Var x)    = GT
+  -- compare (C s)    (NotMin s') = compare (C s) s'
+  -- compare (C s)     _          = LT
+  -- -- NotMin
+  -- compare (NotMin s) Min       = GT
+  -- compare (NotMin s) s'        = compare s s'
+  -- -- Unknown
+  -- compare Unknown   Unknown    = EQ
+  -- compare _         Unknown    = LT
+  -- -- Multiple
+  -- compare (Multiple ss) s'     = foldl1 compare (map (\s'' -> compare s'' s') ss)
+  -- compare s     (Multiple ss') = foldl1 compare (map (compare s) ss')
+  -- -- Catch-all
+  -- compare _         _          = EQ
 
   
 -- Control-flow graphs
@@ -123,7 +215,13 @@ instance Ord Size where -- TODO: Compare skal give mening!
   
 data ControlPoint a =
     Global Sym a
-  | Local Sym (ControlPoint a) a deriving (Eq, Show)
+  | Local Sym (ControlPoint a) a deriving (Show)
+
+instance Eq (ControlPoint a) where
+  f == g = controlPointId f == controlPointId g
+
+instance Ord (ControlPoint a) where
+  compare f g = compare (controlPointId f) (controlPointId g)
 
 -- A Call is a connection between two control points, establishing interdependency
 type Substitution a = [(Sym, DataPosition a)]
@@ -188,21 +286,38 @@ isArcSafe (as, arcs, bs) = all (\arc -> isSafeArc arc) arcs && hasConsistentArcs
 areComposable :: Eq a => SizeChangeGraph a b -> SizeChangeGraph a b -> Bool
 areComposable (_, _, y) (y', _, _) = y == y'
 
-compose :: (Eq a, Eq b) => SizeChangeGraph a b -> SizeChangeGraph a b -> Maybe (SizeChangeGraph a b)
+-- compose :: (Eq a, Eq b) => SizeChangeGraph a b -> SizeChangeGraph a b -> Maybe (SizeChangeGraph a b)
+-- compose g@(x, xy, y) g'@(y', yz, z)
+--   | areComposable g g' = Just (x, composeArrows xy yz, z)
+--   | otherwise          = Nothing
+--   where
+--     composeArrows :: Eq a => [SCArc a] -> [SCArc a] -> [SCArc a]
+--     composeArrows xy yz =
+--           [ (x, NonIncreasing   , z) | (x, arr, y) <- xy, (y', arr', z) <- yz ]
+          -- [ (x, Descending   , z) | (x, arr, y) <- xy, (y', arr', z) <- yz, y == y',
+          --                           arr == Descending || arr' == Descending       ] ++
+          -- [ (x, NonIncreasing, z) | (x, arr, y) <- xy, (y', arr', z) <- yz, y == y',
+          --                           arr == NonIncreasing && arr' == NonIncreasing ]
+
+-- composeAll :: (Eq a, Eq b) => SizeChangeGraph a b -> [SizeChangeGraph a b] -> [SizeChangeGraph a b]
+-- composeAll g [] = [g]
+-- composeAll g gs = mapMaybe (compose g) gs
+
+compose :: Eq a => SizeChangeGraph a (Sym, Size) -> SizeChangeGraph a (Sym, Size) -> Maybe (SizeChangeGraph a (Sym, Size))
 compose g@(x, xy, y) g'@(y', yz, z)
   | areComposable g g' = Just (x, composeArrows xy yz, z)
   | otherwise          = Nothing
   where
-    composeArrows :: Eq a => [SCArc a] -> [SCArc a] -> [SCArc a]
+    composeArrows :: [SCArc (Sym, Size)] -> [SCArc (Sym, Size)] -> [SCArc (Sym, Size)]
     composeArrows xy yz =
-          [ (x, Descending   , z) | (x, arr, y) <- xy, (y', arr', z) <- yz, y == y',
-                                    arr == Descending || arr' == Descending       ] ++
-          [ (x, NonIncreasing, z) | (x, arr, y) <- xy, (y', arr', z) <- yz, y == y',
-                                    arr == NonIncreasing && arr' == NonIncreasing ]
+          [ (DataPos (x,xs), Descending, DataPos (z,zs)) |
+              (DataPos (x,xs), arr, DataPos (y,_)) <- xy, (DataPos (y',_), arr', DataPos (z,zs)) <- yz, y == y',
+              arr == Descending || arr' == Descending       ] ++
+          [ (DataPos (x,xs), NonIncreasing, DataPos (z,zs)) |
+              (DataPos (x,xs), arr, DataPos (y,_)) <- xy, (DataPos (y',_), arr', DataPos (z,zs)) <- yz, y == y',
+              arr == NonIncreasing && arr' == NonIncreasing ]
 
-composeAll :: (Eq a, Eq b) => SizeChangeGraph a b -> [SizeChangeGraph a b] -> [SizeChangeGraph a b]
-composeAll g [] = [g]
-composeAll g gs = mapMaybe (compose g) gs
+
 
 cyclicMultipaths :: Eq a => [SizeChangeGraph a b] -> [Multipath a b]
 cyclicMultipaths []                 = []
@@ -212,12 +327,18 @@ cyclicMultipaths (scgs@((f,_,g):_)) = cycles f (assocListFromTriples scgs) [] []
              -- Visited          Cycles
              [ControlPoint a] -> [Multipath a b]
     cycles node graph path visited =
-      let nodesVisited = if node `notElem` visited then node : visited else visited
+      let backtracking = node `elem` visited
+          nodesVisited = if not backtracking then node : visited else visited
           nodeEdges = case lookup node graph of
                         Just edges -> edges
                         Nothing    -> []
           -- cycleEdges create a cycle
-          (cycleEdges, unexploredEdges) = partition (\(f, _, g) -> g `elem` nodesVisited) nodeEdges
+--          (cycleEdges, unexploredEdges) = partition (\(f, _, g) -> g `elem` nodesVisited) nodeEdges
+          (cycleEdges, otherEdges) = partition (\(f,_,g) -> let inPath = any (\(m,_,n) -> g == m) path
+                                                            in if backtracking
+                                                               then inPath 
+                                                               else inPath || g `elem` nodesVisited) nodeEdges
+          unexploredEdges = filter (\(f, _, g) -> g `notElem` nodesVisited) otherEdges
           cyclePaths = map (\(f,x,g) -> (subListFrom (\(m,_,n) -> g == m) path) ++ [(f,x,g)]) cycleEdges
           unexploredPaths =
             case unexploredEdges of
@@ -239,7 +360,7 @@ cycledUntilHead (x:xs) y
 allMultipaths :: (Eq a, Eq b) => Multipath a b -> [Multipath a b]
 allMultipaths multipath = map (\scg -> cycledUntilHead multipath scg) multipath
 
-collapse :: (Eq a, Eq b) => Multipath a b -> Maybe (SizeChangeGraph a b)
+collapse :: Eq a => Multipath a (Sym, Size) -> Maybe (SizeChangeGraph a (Sym, Size))
 collapse multipath
   | not (null multipath) = foldM compose (head multipath) (tail multipath)
   | otherwise            = Nothing                           
@@ -250,8 +371,8 @@ collapse multipath
 isLoop :: Eq a => SizeChangeGraph a b -> Bool
 isLoop (f, _, g) = f == g
 
--- | Determines whether a size-change graph G is equal to G;G G composed with G (i.e. G;G)
-isSelfComposition :: (Eq a, Eq b) => SizeChangeGraph a b -> Bool
+-- | Determines whether a size-change graph G is equal to G composed with G (i.e. G;G)
+isSelfComposition :: Eq a => SizeChangeGraph a (Sym, Size) -> Bool
 isSelfComposition g = case g `compose` g of
                         Just g' -> g == g'
                         Nothing -> False
@@ -308,9 +429,9 @@ globalDataConstructors ((TEData ty@(TRecInd _ (TVari constructors)) _):ds) =
      ++ globalDataConstructors ds
 globalDataConstructors (_:ds) = globalDataConstructors ds
 
-dataEnv :: ControlPoint DataEnv -> DataEnv
-dataEnv (Global _ env)  = env
-dataEnv (Local _ parent env) = env ++ dataEnv parent
+-- dataEnv :: ControlPoint DataEnv -> DataEnv
+-- dataEnv (Global _ env)  = env
+-- dataEnv (Local _ parent env) = env ++ dataEnv parent
 
 -- If no local dataenv, then control point is value
 
@@ -327,6 +448,19 @@ data CallGraphEnv = CallGraphEnv { controlPoints :: [ControlPoint DataEnv],
                                    constructors  :: [Constructor],
                                    dataPositions :: DataEnv,
                                    hints         :: Hints }
+
+updateControlPoint :: ControlPoint DataEnv -> Size -> (Size -> Size) -> ControlPoint DataEnv
+updateControlPoint (Global name params)       size f = Global name (updateDataEnv params size f)
+updateControlPoint (Local name parent params) size f = Local name parent (updateDataEnv params size f)
+
+updateDataEnv :: DataEnv -> Size -> (Size -> Size) -> DataEnv
+updateDataEnv [] size f = []
+updateDataEnv ((name, DataPos s):sizes) size f = if s == size
+                                                 then (name, DataPos $ f s) : updateDataEnv sizes size f
+                                                 else (name, DataPos s) : updateDataEnv sizes size f
+-- updateDataEnv params size f =
+--   map (\(p, DataPos s) -> if size == s then (p, DataPos s) else (p, DataPos s)) params
+
 
 addControlPoint :: ControlPoint DataEnv -> CallGraphEnv -> CallGraphEnv
 addControlPoint cp (CallGraphEnv cps cos dpos hs) = CallGraphEnv (cp:cps) cos dpos hs
@@ -379,7 +513,7 @@ callGraph' f (TELet ty id exprty params expr body)      = do
   case exprGraph of
     [] -> case params of
             Just _ -> 
-              let env = addData [(id, DataPos $ Deferred body)] .
+              let env = addData [(id, DataPos $ Deferred expr)] .
                         addControlPoint localDef
               in local env $ callGraph' f body
             Nothing ->
@@ -389,11 +523,12 @@ callGraph' f (TELet ty id exprty params expr body)      = do
       bodyGraph <- local (addControlPoint localDef) $ callGraph' f body
       return $ eg ++ bodyGraph
 callGraph' f (TECase ty expr cases)                     = do
+  env <- ask
   exprSize <- sizeOf' f expr
   let exprType = getTypeAnno expr
   let isRecType = (== exprType)
   variant <- lift $ getVariantType exprType
-  caseGraphs <- forM cases $ (\(id, (vars, caseExpr)) -> do
+  caseGraphs <- forM cases $ \(id, (vars, caseExpr)) -> do
                   caseTypes <- case lookup id variant of
                                  Just ts -> return ts
                                  Nothing -> throwError $ CallGraphError "Incompatible pattern"
@@ -401,8 +536,16 @@ callGraph' f (TECase ty expr cases)                     = do
                   let argEnv = map (\(v, t) -> if isRecType t
                                                then (v, DataPos $ D exprSize)
                                                else (v, DataPos $ Var v)) annoVars
-                  let caseEnv = addData argEnv . addHints [(expr, id)]
-                  local caseEnv $ callGraph' f caseExpr)
+                  let isBaseCase = all (\(v,t) -> not $ isRecType t) annoVars
+                  if isBaseCase
+                  then let newF = updateControlPoint f exprSize (const Min)
+                           caseEnv = addData argEnv . addHints [(expr, id)] . addControlPoint newF .
+                                     addData (map (\(name, size) -> (name, DataPos Min)) $ filter (\(_, DataPos size) -> size == exprSize) (dataPositions env))
+                       in local caseEnv $ callGraph' newF caseExpr
+                  else let newF = updateControlPoint f exprSize NotMin
+                           caseEnv = addData argEnv . addHints [(expr, id)] . addControlPoint newF .
+                                     addData (map (\(name, DataPos size) -> (name, DataPos $ NotMin size)) $ filter (\(_, DataPos size) -> size == exprSize) (dataPositions env))
+                       in local caseEnv $ callGraph' newF caseExpr
   return $ concat caseGraphs
 callGraph' f (TETag ty id args)                          = do
   argGraphs <- mapM (callGraph' f) args
@@ -435,7 +578,7 @@ sizeOf' cp (TEApp _ f args) = do
       let targetData = controlPointData target
       argSizes <- mapM (sizeOf' cp) args
       let argEnv = map DataPos argSizes
-      local (addData $ (zip (map fst targetData) argEnv)) $ sizeOf' cp f
+      local (addData $ zip (map fst targetData) argEnv) $ sizeOf' cp f
     Nothing ->
       case constructorFromExpr f (constructors env) of
         Just constructor ->
@@ -459,7 +602,7 @@ sizeOf' f (TECase ty expr cases)                    = do
   let exprType = getTypeAnno expr
   let isRecType = (== exprType)
   variant <- lift $ getVariantType exprType
-  caseSizes <- forM cases $ (\(id, (vars, caseExpr)) -> do
+  casesWSize <- forM cases $ \(id, (vars, caseExpr)) -> do
                  caseTypes <- case lookup id variant of
                                 Just ts -> return ts
                                 Nothing  ->
@@ -470,15 +613,23 @@ sizeOf' f (TECase ty expr cases)                    = do
                                               else (v, DataPos $ Var v)) annoVars
                  let isBaseCase = all (\(v,t) -> not $ isRecType t) annoVars
                  if isBaseCase
-                  then do baseCaseSize <- local (addData argEnv) $ sizeOf' f caseExpr
-                          return $ baseCaseSize `withAlias` (Min, exprSize)
-                  else local (addData argEnv) $ sizeOf' f caseExpr)
+                  then do let newF = updateControlPoint f exprSize (const Min)
+                          let caseEnv = addData argEnv . addControlPoint newF .
+                                        addData (map (\(name, DataPos size) -> (name, DataPos Min)) $ filter (\(_, DataPos size) -> size == exprSize) (dataPositions env))
+                          baseCaseSize <- local caseEnv $ sizeOf' newF caseExpr
+                          return (id, baseCaseSize)
+                  else do let newF = updateControlPoint f exprSize NotMin
+                          let caseEnv = addData argEnv . addControlPoint newF .
+                                        addData (map (\(name, DataPos size) -> (name, DataPos $ NotMin size)) $ filter (\(_, DataPos size) -> size == exprSize) (dataPositions env))
+                          size <- local caseEnv $ sizeOf' newF caseExpr
+                          return (id, size)
+  let caseSizes = map snd casesWSize
   let maxSize = if null caseSizes then Unknown else foldr1 max caseSizes -- Gør det mest konservative.
   case lookup expr (hints env) of
     Just hint ->
-      case find (\c -> fst c == hint) cases of
-        Just c -> sizeOf' f (TECase ty expr [c]) -- Call recursively on only one case
-        Nothing -> return maxSize
+      case find (\c -> fst c == hint) casesWSize of
+        Just (_, size) -> return size
+        Nothing        -> return maxSize
     Nothing -> return maxSize
 sizeOf' f (TETag tagty id args)                     =
   let hasTaggedType arg = case getTypeAnno arg of
@@ -496,24 +647,66 @@ sizeOf' _ _ = return Unknown
 sizeChangeGraph :: Call DataEnv (Substitution Size) -> SizeChangeGraph DataEnv (Sym, Size)
 sizeChangeGraph (f, subs, g) = (f, mapMaybe toSCArc subs, g)
   where
+    toSCArcs :: [(Sym, DataPosition Size)] -> [(SCArc (Sym, Size))]
+    toSCArcs subs =
+      let fData = controlPointData f
+          subRoots = map (\(x, DataPos size) -> (x, DataPos size, parameterRoots size)) subs
+          (paramSizes, otherSizes) = partition (\(_,_,roots) -> not $ null roots) subRoots
+          paramfRoots = map (\(x,size,roots) -> (x,size,filter (\(y,_) -> y `elem` roots) fData)) paramSizes
+          orders = mapMaybe (\(x,DataPos size,fs) -> minOrder (comparisons size fs) Nothing) paramfRoots
+          comparisons argSize l =
+            map (\(x, DataPos xSize) -> (x, DataPos xSize, compare argSize xSize)) l
+      in []
+          -- (x, DataPos initSize, ord) <- minOrder (if null $ comparisons fRoots
+          --                                           then comparisons fData
+          --                                           else comparisons fRoots)
+          --                                 Nothing
+          --   case ord of
+          --     LT -> Just (DataPos (x, initSize), Descending, DataPos (y, argSize))
+          --     EQ -> Just (DataPos (x, initSize), NonIncreasing, DataPos (y, argSize))
+          --     GT -> Nothing
+
+          -- comparisons = map (\(x, y) ->
+          --                     let x' = fst x
+          --                         y' = fst y
+          --                         xSize = getData $ snd x
+          --                         ySize = getData $ snd y
+          --                     in
+          --                     (DataPos (x', xSize), compare xSize ySize, DataPos (y', ySize))) argMap
+      -- in [ (x, Descending, y)    | (x, cmp, y) <- comparisons, cmp == LT ] ++
+      --    [ (x, NonIncreasing, y) | (x, cmp, y) <- comparisons, cmp == EQ ]
+
     toSCArc :: (Sym, DataPosition Size) -> Maybe (SCArc (Sym, Size))
-    toSCArc (y, arg) =
+    toSCArc (y, arg) = do
+      let fData = controlPointData f
       let argSize = getData arg
-          argRoots = parameterRoots argSize
-          fParams = mapMaybe (\p -> find (\(x, _) -> p == x) (controlPointData f)) argRoots
-          orderedParams = map (\(x, DataPos xSize) -> (x, DataPos xSize, compare argSize xSize)) fParams
-      in do
-           (x, DataPos initSize, ord) <- minOrder orderedParams Nothing
-           arc <- case ord of
-                    LT -> Just (DataPos (x, initSize), Descending, DataPos (y, argSize))
-                    EQ -> Just (DataPos (x, initSize), NonIncreasing, DataPos (y, argSize))
-                    GT -> Nothing
-           return arc
+      let roots = filter (\(x,_) -> x `elem` parameterRoots argSize) fData
+      let comparisons =
+            map (\(x, DataPos xSize) -> (x, DataPos xSize, compare argSize xSize)) $ roots
+            --if null roots then fData else roots
+      (x, DataPos initSize, ord) <- minOrder comparisons Nothing
+      case ord of
+        LT -> Just (DataPos (x, initSize), Descending, DataPos (y, argSize))
+        EQ -> Just (DataPos (x, initSize), NonIncreasing, DataPos (y, argSize))
+        GT -> Nothing
+      
+--       let argSize = getData arg
+-- --          argRoots = parameterRoots argSize
+--           fParams = mapMaybe (\p -> find (\(x, _) -> p == x) (controlPointData f)) argSize -- argRoots
+--           orderedParams = map (\(x, DataPos xSize) -> (x, DataPos xSize, compare argSize xSize)) fParams
+--       in do
+--            (x, DataPos initSize, ord) <- minOrder orderedParams Nothing
+--            arc <- case ord of
+--                     LT -> Just (DataPos (x, initSize), Descending, DataPos (y, argSize))
+--                     EQ -> Just (DataPos (x, initSize), NonIncreasing, DataPos (y, argSize))
+--                     GT -> Nothing
+--            return arc
            
     parameterRoots :: Size -> [Sym]
     parameterRoots (Param x)     = [x]
     parameterRoots (D s)         = parameterRoots s
     parameterRoots (C s)         = parameterRoots s
+    parameterRoots (NotMin s)    = parameterRoots s
     parameterRoots (Multiple ss) = concat $ map parameterRoots ss
     parameterRoots _             = []
 
@@ -526,7 +719,7 @@ sizeChangeGraph (f, subs, g) = (f, mapMaybe toSCArc subs, g)
 
 identityArcs :: SizeChangeGraph DataEnv (Sym, Size) -> [SCArc (Sym, Size)]
 identityArcs scg@(f, arcs, g)
-  | isLoop scg = [ (a, arc, b) | (a, arc, b) <- arcs, a == b ]
+  | isLoop scg = [ (DataPos (a, s), arc, DataPos (b, s')) | (DataPos (a, s), arc, DataPos (b, s')) <- arcs, a == b ]
   | otherwise  = []
 
 descendingArcs :: [SCArc a] -> [SCArc a]
@@ -549,7 +742,7 @@ data Termination = Termination [SizeChangeGraph DataEnv (Sym, Size)]
 
 instance Show Termination where
   show (Termination scgs) =
-    let showF (f,arcs,g) = controlPointId f ++ " terminates on input " ++ (show $ intersperse ", " (map show (descendingArcs arcs)))
+    let showF (f,arcs,g) = controlPointId f ++ " terminates on input " ++ (show $ (map show (descendingArcs arcs)))
     in (intercalate "\n" $ map showF scgs)
 
 data NonTermination =
@@ -584,7 +777,7 @@ isSizeChangeTerminating prog = do
   let multipaths = concat $ map allMultipaths (cyclicMultipaths sizeChangeGraphs)
   let collapsedMultipaths = map (\mp -> (mp, collapse mp)) multipaths
   let unsafeMultipaths = map fst $ filter (\(mp, collapsed) -> isNothing collapsed) collapsedMultipaths
-  let safeCollapsedMultipaths = zip (map fst collapsedMultipaths) (catMaybes $ map snd collapsedMultipaths)
+  let safeCollapsedMultipaths = map (\(mp, c) -> (mp, fromJust c)) $ [ (m, c) | (m, c) <- collapsedMultipaths, isJust c ]
   let possiblyNonTerminating =
         filter (\(mp, collapsed) -> isLoop collapsed && isSelfComposition collapsed) safeCollapsedMultipaths
   let descendingArcsWithGraph m = map (\(mp, collapsed) -> (mp, descendingArcs (identityArcs collapsed))) m
@@ -592,6 +785,16 @@ isSizeChangeTerminating prog = do
   case unsafeMultipaths of
     [] -> case graphsWithNoDescendingArcs possiblyNonTerminating of
             []            -> return $ Termination (map snd safeCollapsedMultipaths)
-            nonDescending -> throwError $ InfiniteRecursion (head $ map fst nonDescending) -- UnknownCause (show calls) -- (intercalate ", " $ map (\s -> showSizeChangeGraph s True) sizeChangeGraphs) -- InfiniteRecursion (head $ map fst nonDescending)          
+                             --throwError $ UnknownCause $ concat $ map (\s -> showSizeChangeGraph s True) (map snd safeCollapsedMultipaths)
+                             -- throwError $ UnknownCause $ concat $ map (\s -> showMultipath s False) (map fst safeCollapsedMultipaths)
+                             --throwError $ UnknownCause $ show calls
+                             -- throwError $ UnknownCause $ (show calls) ++ "\n" ++ (intercalate ", " $ map (\s -> showSizeChangeGraph s True) sizeChangeGraphs)
+                             -- throwError $ UnknownCause $ show possiblyNonTerminating
+            nonDescending -> throwError $
+                               InfiniteRecursion (head $ map fst nonDescending)
+                              -- UnknownCause $ show (descendingArcsWithGraph possiblyNonTerminating)
+                               -- UnknownCause (show calls)
+                               --UnknownCause $ (intercalate ", " $ map (\s -> showSizeChangeGraph s True) $ map snd safeCollapsedMultipaths)
+                               --UnknownCause $ show $ map (\m -> showMultipath m False) multipaths
     unsafe -> throwError $ UnsafeMultipathError (head unsafe)
 

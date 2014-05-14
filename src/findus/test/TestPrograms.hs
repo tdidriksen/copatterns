@@ -106,6 +106,25 @@ scEx3Body =
     ])))
   ]
 
+-- Third example from original size-change paper (negative test)
+scEx3neg, scEx3negBody :: Expr
+-- let scEx3neg m n =
+--   case m of
+--     Z -> S n
+--     S m' -> case n of
+--               Z -> scEx3neg m' 1
+--               S n' -> scEx3neg m' (scEx3neg m n') 
+scEx3neg = EGlobLet "scEx3neg" (TArr [TGlobTypeVar "nat", TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just [("m", TGlobTypeVar "nat"), ("n", TGlobTypeVar "nat")]) scEx3negBody
+scEx3negBody =
+  ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "m")]) [
+    ("Z", ([], EApp (EVar "S") [(EVar "n")])),
+    ("S", (["m'"], (ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "n")]) [
+                       ("Z", ([], EApp (EVar "scEx3neg") [(EVar "m'"), one])),
+                       ("S", (["n'"], EApp (EVar "scEx3neg") [(EVar "m'"), (EApp (EVar "scEx3neg") [(EVar "m"), (EVar "n")])]))
+    ])))
+  ]
+
+
 -- Fourth example from original size-change paper
 scEx4, scEx4Body :: Expr
 -- let scEx4 m n r =
@@ -123,6 +142,25 @@ scEx4Body =
                  ("S", (["n'"], EApp (EVar "scEx4") [(EVar "r"), (EVar "n'"), (EVar "m")]))
      ])),
     ("S", (["r'"], EApp (EVar "scEx4") [(EVar "m"), (EVar "r'"), (EVar "n")]))
+  ]
+
+-- Fourth example from original size-change paper (negative test)
+scEx4neg, scEx4negBody :: Expr
+-- let scEx4neg m n r =
+--   case r of
+--     Z -> case n of
+--            Z -> m
+--            S n' -> scEx4neg r n' m
+--     S r' -> scEx4neg m r' n
+scEx4neg = EGlobLet "scEx4neg" (TArr [TGlobTypeVar "nat", TGlobTypeVar "nat", TGlobTypeVar "nat"] (TGlobTypeVar "nat")) 
+        (Just [("m", TGlobTypeVar "nat"), ("n", TGlobTypeVar "nat"), ("r", TGlobTypeVar "nat")]) scEx4negBody
+scEx4negBody =
+  ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "r")]) [
+    ("Z", ([], ECase (EApp (EUnfold (TGlobTypeVar "nat")) [(EVar "n")]) [
+                 ("Z", ([], EVar "m")),
+                 ("S", (["n'"], EApp (EVar "scEx4neg") [(EVar "r"), (EVar "n'"), (EVar "m")]))
+     ])),
+    ("S", (["r'"], EApp (EVar "scEx4neg") [(EVar "m"), (EVar "r"), (EVar "n")]))
   ]
 
 
@@ -144,3 +182,68 @@ scEx1Body =
         ("cons", (["x", "xs"], EApp (EVar "r1") [(EVar "xs"), (EApp (EVar "cons") [(EVar "x"), (EVar "a")])]))
     ])
     (EApp (EVar "r1") [(EVar "ls"), emptyList])
+
+
+-- Second example from original size-change paper
+-- let scEx2f i x =
+--  case i of
+--    nil -> x
+--    cons hd tl -> scEx2g tl x i
+scEx2f = EGlobLet "scEx2f" (TArr [TGlobTypeVar "natList", TGlobTypeVar "nat"] (TGlobTypeVar "nat")) (Just [("i", TGlobTypeVar "natList"), ("x", TGlobTypeVar "nat")]) scEx2fBody
+scEx2fBody =
+  (ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "i")]) [
+    ("nil", ([], EVar "x")),
+    ("cons", (["hd", "tl"], EApp (EVar "scEx2g") [(EVar "tl"), (EVar "x"), (EVar "i")]))
+   ])
+
+-- let scEx2g a b c =
+--   f a (cons b c)
+scEx2g = EGlobLet "scEx2g" (TArr [TGlobTypeVar "natList", TGlobTypeVar "nat", TGlobTypeVar "natList"] (TGlobTypeVar "nat")) (Just [("a", TGlobTypeVar "natList"), ("b", TGlobTypeVar "nat"), ("c", TGlobTypeVar "natList")]) scEx2gBody
+scEx2gBody =
+  EApp (EVar "scEx2f") [(EVar "a"), (EApp (EVar "S") [EVar "b"])]
+
+
+-- Fifth example from original size-change paper
+-- let scEx5 x y =
+--  case y of
+--    nil -> x
+--    cons yhd ytl ->
+--      case x of
+--        nil -> scEx5 y ytl
+--        cons xhd xtl -> scEx5 y xtl
+scEx5 = EGlobLet "scEx5" (TArr [TGlobTypeVar "natList", TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("x", TGlobTypeVar "natList"), ("y", TGlobTypeVar "natList")]) scEx5Body
+scEx5Body =
+  (ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "y")]) [
+    ("nil", ([], EVar "x")),
+    ("cons", (["yhd", "ytl"],
+        (ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "x")]) [
+            ("nil", ([], EApp (EVar "scEx5") [(EVar "y"), (EVar "ytl")])),
+            ("cons", (["xhd", "xtl"], EApp (EVar "scEx5") [(EVar "y"), (EVar "xtl")]))
+        ])
+      ))
+   ])
+
+
+-- Sixth example from original size-change paper
+-- let scEx6f a b =
+--  case b of
+--    nil -> scEx6g a nil
+--    cons bhd btl -> scEx6f (cons bhd a) btl
+scEx6f = EGlobLet "scEx6f" (TArr [TGlobTypeVar "natList", TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("a", TGlobTypeVar "natList"), ("b", TGlobTypeVar "natList")]) scEx6fBody
+scEx6fBody =
+  (ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "b")]) [
+    ("nil", ([], EApp (EVar "scEx6g") [(EVar "a"), emptyList])),
+    ("cons", (["bhd", "btl"], EApp (EVar "scEx6f") [(EApp (EVar "cons") [EVar "bhd", EVar "a"]), (EVar "btl")]))
+   ])
+
+-- let scEx6g c d =
+--   case c of
+--     nil -> d
+--     cons chd ctl -> scEx6g ctl (cons chd d)
+scEx6g = EGlobLet "scEx6g" (TArr [TGlobTypeVar "natList", TGlobTypeVar "natList"] (TGlobTypeVar "natList")) (Just [("c", TGlobTypeVar "natList"), ("d", TGlobTypeVar "natList")]) scEx6gBody
+scEx6gBody =
+  (ECase (EApp (EUnfold (TGlobTypeVar "natList")) [(EVar "c")]) [
+    ("nil", ([], EVar "d")),
+    ("cons", (["chd", "ctl"], EApp (EVar "scEx6g") [(EVar "ctl"), (EApp (EVar "cons") [EVar "chd", EVar "d"])]))
+  ])
+
