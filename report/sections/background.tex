@@ -2,8 +2,73 @@
 \section{Background}
 \label{sec:background}
 
+\subsection{Why Do We Care About Totality?}
+In a conventional programming setting, we know that our program results in a value \emph{if} it terminates \emph{and} does not result in a run-time error, both of which are possible. We have no guarantees about the behaviour of a program, aside from the confidence we have in ourselves as developers. Even if we have proof that our program acts correctly according to its specification, we are only guaranteed that our program is \emph{partially} correct, unless we prove that it is also total.
+
+Totality covers two terms: \emph{termination} and \emph{productivity}. A function on inductive data terminates whenever it has consumed all of its input. A function on coinductive data is productive if it can always produce a finite prefix of its result in finite time. Both terms imply that any invocation of a total function cannot result in an infinite loop, but they do so in different ways. 
+
+Termination talks about input. Because we know that inductive data is always finite, it is reasonable to expect a terminating function to be able to consume all of its input. When there is no more input, the function should result in a value, which in turn implies that a terminating function must be defined for all cases of its input. 
+
+Productivity talks about output. Since coinductive data is possibly infinite, we cannot rely on the function consuming all of its input. Instead, we require that it must always produce a result in finite time. While this might sound vague, it implies that even though the function produces coinductive data, it must produce it in infinitely many (finite) chunks, which can be returned one at a time.
+
+Making programs total have multiple benefits. First of all, it gives us a guarantee that an output is always produced, which means that we can substitute a degree of confidence with a guarantee. Secondly, due to the Curry-Howard correspondence we can use total programs as proofs, which enables us to establish strong guarantees about their correctness. In Idris, partial functions are not evaluated by the type checker (the type checker might loop forever), and thus can never consitute part of a proof. A common argument against total programming is that we cannot create programs which are not meant to terminate, such as servers and operating systems. Whoever makes such an argument has, regrettably, mistaken \emph{totality} for \emph{termination}. It is true that servers and operating systems are not meant to terminate, but they can be productive, a notion which is well-suited for systems that need to be responsive.
+
+In short, we care about totality because it provides us with guarantees, and ultimately enables us construct provably correct programs.
+
+% Non-termination is a possibility
+% Not used in proof --- not expanded by type checker
+% We can write total servers and operating systems!
+% termination vs. productivity
+
 \subsection{Codata}
 What is codata?
+
+\subsection{The Current Status of Codata in Idris}
+Coinductive data types already exist in Idris, although they are not defined by observations\todo{Make sure that definitions by observations are mentioned before this point}. Instead, they are defined by constructors, as exemplified in Figure~\ref{fig:stream_current}. 
+
+\begin{figure}
+\begin{alltt}
+codata Stream : Type -> Type where
+  (::) : a -> Stream a -> Stream a
+\end{alltt}
+\caption{A stream definition as it currently looks in Idris.}
+\label{fig:stream_current}
+\end{figure}
+
+At first glance, the type of the \texttt{(::)} constructor looks reasonable. Taking this type at face value, let us try to imagine how a \texttt{Stream} of all the natural numbers could be built:
+
+\begin{alltt}
+(0 :: (1 :: (2 :: (3 :: (4 :: (5 :: \ldots))))))
+\end{alltt}
+
+This seems to be impossible: Building a \texttt{Stream} requires a new \texttt{Stream}, which again requires a new \texttt{Stream}, leading to an infinite chain of \texttt{Stream}s. Is \texttt{Stream} inhabited at all? Fortunately, the answer is yes, the reason being that the syntax hides an important detail. Internally, the \texttt{(::)} constructor only requires a lazily evaluated \texttt{Stream} as its second argument. Instead of giving an actual stream, we can specify a promise that the rest of the \texttt{Stream} can be generated later. This is captured by the \texttt{Inf} type operator in Figure \ref{fig:stream_current_Inf_and_nats}. The recursive call in \texttt{nats} will be lazily evaluated, and therefore not cause an infinite computation.
+
+\begin{figure}
+\begin{alltt}
+codata Stream : Type -> Type where
+  (::) : a -> Inf (Stream a) -> Stream a
+
+nats : Nat -> Stream Nat
+nats n = n :: nats (S n)
+\end{alltt}
+\caption{A stream definition as it currently looks in Idris with the implicit \texttt{Inf} operator made explicit. This allows us to define an infinite sequence of natural numbers as shown with \texttt{nats}.}
+\label{fig:stream_current_Inf_and_nats}
+\end{figure}
+
+This scheme of lazily evaluating coinductive arguments is applied automatically to any constructor in a \texttt{codata} declaration during elaboration, and \texttt{Inf} is therefore omitted in the concrete Idris syntax.
+
+To ensure the productivity of functions returning codata, Idris has a productivity checker which analyzes a program according to the \emph{guardedness} principle\,\citep{Coquand94,Gimenez95}: Any recursive call must appear directly under a constructor. In the \texttt{nats} example, the recursive call appeared directly under the \texttt{(::)} constructor. If we try to define the same function without the \texttt{Nat} argument (shown in Figure \ref{fig:nats'}), however, the productivity checker rejects the program, complaining that \texttt{nats'} is possibly not total. In this case the recursive call does not appear directly under \texttt{(::)}, but is wrapped in a call to \texttt{map}. Therefore, even though \texttt{nats'} is in fact productive, it is not productive according to the guardedness principle.
+
+\begin{figure}
+\begin{alltt}
+nats' : Stream Nat
+nats' = Z :: map S nats'
+\end{alltt}
+\caption{A stream of all the natural numbers which is productive, but not according to the guardedness principle.}
+\label{fig:nats'}
+\end{figure}
+
+In its original formulation (which is also the one implemented for Idris), the guardedness principle is quite simple, but also rather conservative. The productivity checking algorithm we present in Section~\ref{sec:productivity} accepts more functions as being productive, but is arguably not as simple.
 
 \subsection{Copatterns}
 What are copatterns? (conceptually)
@@ -39,5 +104,3 @@ What are copatterns? (conceptually)
 % \end{alltt}
 
 % \texttt{List a} consists of two data constructors, \texttt{Nil} and \texttt{Cons}. Because these two constructors constitute the only that we can construct a \texttt{List a}, 
-
-\subsection{The Current Status of Codata in Idris}
