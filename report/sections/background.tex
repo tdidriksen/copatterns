@@ -21,10 +21,48 @@ In short, we care about totality because it provides us with guarantees, and ult
 % termination vs. productivity
 
 \subsection{Codata}
-What is codata?
+\label{sec:codata}
+Coinductive data, or codata (these terms will be used interchangably), is data defined in terms of \emph{observations}\,\citep{Jacobs97atutorial}. Since its inception, codata has proven to be a useful tool to algebraically describe dynamic structures involving some notion of state, such as transition systems and automata\,\citep{Jacobs97atutorial}, and informally we can say that it allows us to model infinite structures. The idea of infinity arises from the fact that we can define codata which can be observed in infinitely many different states.
+
+\subsubsection{The Duality Between Inductive and Coinductive Data} There is a close correlation between inductively defined data and coinductively defined data. This duality is most clearly described when described as the distinction between \emph{construction} and \emph{observation}. Inductive data is constructed from using a finite set of constructors, whereas coinductive data  can be observed in a given state by a finite set of observations. The distinction is perhaps most easily made clear with an example. Consider a standard list data structure, defined in Idris-like syntax (note that we have made explicit the notion that constructors which no parameters in fact have a unit parameter):
+
+\begin{alltt}
+data List : Type -> Type where
+  Nil  : () -> List a 
+  (::) : a  -> List a -> List a
+\end{alltt}
+
+An instance of \texttt{List} can be constructed using the two constructors, \texttt{Nil} and \texttt{(::)} (cons). Notably, the only way to construct a \texttt{List} in finite time is to apply the \texttt{Nil} constructor at some point. Hence, this definition of lists is clearly by construction, which means that it is an inductive definition. Could we define lists by observations also? A coinductive definition requires that we define what can be observed about a list in a given state. So, what is the state of a list? The definition of \texttt{List} provides some intuition. At any point in time, we can either observe no elements (\texttt{Nil}) or we can observe an element and the rest of the list (\texttt{(::)}). Let us try to formalize this notion:
+
+\begin{alltt}
+codata CoList : Type -> Type where
+  Elem : CoList a -> Maybe (a, CoList a)
+\end{alltt}
+
+% cons : a -> List a -> List a
+% Elem (cons a l) = Just (a, l)
+
+% append : List a -> List a -> List a
+% Elem (append xs ys) = case Elem xs of
+%                         Just (a, l) => Just (a, (append l ys))
+%                         Nothing => Elem ys 
+
+Notice how the types (and names) have changed. Since we want to make observations in a given state, the \texttt{Elem} observation must take a \texttt{CoList a} as parameter, representing the state, i.e. the object of our observations. Also, because we are not constructing a list, the result of \texttt{Elem} does not have to be \texttt{CoList~a}. Instead it is a \texttt{Maybe} type, which denotes that whenever we try to observe a list, we might get \texttt{Nothing} if the list is empty, or \texttt{Just (x, xs)}, where \texttt{x} is an element and \texttt{xs} is the rest of the list. 
+
+Understanding the duality between these two definitions requires a bit of desugaring. We can desugar the \texttt{Maybe} type from the second example into a sum type, \texttt{() + (a, CoList a)}, where \texttt{Nothing} is represented by a unit value, \texttt{()}. Furthermore, we can desugar the two constructors from the first example into one constructor which accepts either a unit value or an element and a list as input, i.e. a sum type \texttt{() + (a, List a)}. We can now view the two definitions side by side in a slightly different light:
+
+\begin{alltt}
+List   : () + (a, List a)   ->   List a
+CoList : CoList a           ->   () + (a, CoList a)
+\end{alltt}
+
+When juxtaposing these types, it becomes apparent that the ways we can construct an inductively defined list is dual to what we can observe about a coinductively defined list. This duality is a general property which exists between inductive and coinductive data: Constructors tell us how data can be built, observations tell us what we can observe about our data.
+
+\subsubsection{Bisimulation}
+Since coinductive data has no inherent structure, it does not always make sense to talk about equality between two instances of a coinductive type. Instead, it may be the case that two instances of codata give rise to the same sequence of observations, such that they cannot be told apart by the results of our observations. When instances of codata are observationally indistinguishable in this way, we say they are \emph{bisimilar}, as one instance simulates the behaviour of the other. Further details on this phenomenon can be found in the tutorial by Jacobs and Rutten\,\citep{Jacobs97atutorial}.
 
 \subsection{The Current Status of Codata in Idris}
-Coinductive data types already exist in Idris, although they are not defined by observations\todo{Make sure that definitions by observations are mentioned before this point}. Instead, they are defined by constructors, as exemplified in Figure~\ref{fig:stream_current}. 
+Coinductive data types already exist in Idris, although they are not defined by observations\todo{Make sure that definitions by observations are mentioned before this point}. Instead, they are defined by constructors, as exemplified with the infinite list definition, called \texttt{Stream}, in Figure~\ref{fig:stream_current}.
 
 \begin{figure}
 \begin{alltt}
@@ -41,37 +79,78 @@ At first glance, the type of the \texttt{(::)} constructor looks reasonable. Tak
 (0 :: (1 :: (2 :: (3 :: (4 :: (5 :: \ldots))))))
 \end{alltt}
 
-This seems to be impossible: Building a \texttt{Stream} requires a new \texttt{Stream}, which again requires a new \texttt{Stream}, leading to an infinite chain of \texttt{Stream}s. Is \texttt{Stream} inhabited at all? Fortunately, the answer is yes, the reason being that the syntax hides an important detail. Internally, the \texttt{(::)} constructor only requires a lazily evaluated \texttt{Stream} as its second argument. Instead of giving an actual stream, we can specify a promise that the rest of the \texttt{Stream} can be generated later. This is captured by the \texttt{Inf} type operator in Figure \ref{fig:stream_current_Inf_and_nats}. The recursive call in \texttt{nats} will be lazily evaluated, and therefore not cause an infinite computation.
+This seems to be impossible. Building a \texttt{Stream} requires a new \texttt{Stream}, which again requires a new \texttt{Stream}, leading to an infinite chain of \texttt{Stream}s. Is \texttt{Stream} inhabited at all? Fortunately, the answer is yes, the reason being that the syntax hides an important detail. Internally, the \texttt{(::)} constructor only requires a lazily evaluated \texttt{Stream} as its second argument. Instead of giving an actual stream, we can specify a promise that the rest of the \texttt{Stream} can be generated later. This is captured by the \texttt{Inf} type operator in Figure \ref{fig:stream_current_Inf_and_natsFrom}. The corecursive call in \texttt{nats} will be lazily evaluated, and therefore not cause an infinite computation.
 
 \begin{figure}
 \begin{alltt}
 codata Stream : Type -> Type where
   (::) : a -> Inf (Stream a) -> Stream a
 
-nats : Nat -> Stream Nat
-nats n = n :: nats (S n)
+natsFrom : Nat -> Stream Nat
+natsFrom n = n :: natsFrom (S n)
 \end{alltt}
-\caption{A stream definition as it currently looks in Idris with the implicit \texttt{Inf} operator made explicit. This allows us to define an infinite sequence of natural numbers as shown with \texttt{nats}.}
-\label{fig:stream_current_Inf_and_nats}
+\caption{A stream definition as it currently looks in Idris with the implicit \texttt{Inf} operator made explicit. This allows us to define an infinite sequence of natural numbers as shown with \texttt{natsFrom}.}
+\label{fig:stream_current_Inf_and_natsFrom}
 \end{figure}
 
-This scheme of lazily evaluating coinductive arguments is applied automatically to any constructor in a \texttt{codata} declaration during elaboration, and \texttt{Inf} is therefore omitted in the concrete Idris syntax.
+This scheme of lazily evaluating coinductive arguments is applied automatically to any constructor in a \texttt{codata} declaration during elaboration, and \texttt{Inf} is therefore omitted in the concrete Idris syntax. As such, codata in Idris is currently modeled as lazily evaluated data where observations can be made by pattern matching.
 
-To ensure the productivity of functions returning codata, Idris has a productivity checker which analyzes a program according to the \emph{guardedness} principle\,\citep{Coquand94,Gimenez95}: Any recursive call must appear directly under a constructor. In the \texttt{nats} example, the recursive call appeared directly under the \texttt{(::)} constructor. If we try to define the same function without the \texttt{Nat} argument (shown in Figure \ref{fig:nats'}), however, the productivity checker rejects the program, complaining that \texttt{nats'} is possibly not total. In this case the recursive call does not appear directly under \texttt{(::)}, but is wrapped in a call to \texttt{map}. Therefore, even though \texttt{nats'} is in fact productive, it is not productive according to the guardedness principle.
+To ensure the productivity of functions returning codata, Idris has a productivity checker which analyzes a program according to the \emph{guardedness} principle\,\citep{Coquand94,Gimenez95}: Any corecursive call must appear directly under a constructor. In the \texttt{natsFrom} example, the corecursive call appeared directly under the \texttt{(::)} constructor. If we try to define the same function without the \texttt{Nat} argument (shown in Figure \ref{fig:nats}), however, the productivity checker rejects the program, complaining that \texttt{nats} is possibly not total. In this case the corecursive call does not appear directly under \texttt{(::)}, but is wrapped in a call to \texttt{map}. Therefore, even though \texttt{nats} is in fact productive, it is not productive according to the guardedness principle.
 
 \begin{figure}
 \begin{alltt}
-nats' : Stream Nat
-nats' = Z :: map S nats'
+nats : Stream Nat
+nats = Z :: map S nats
 \end{alltt}
 \caption{A stream of all the natural numbers which is productive, but not according to the guardedness principle.}
-\label{fig:nats'}
+\label{fig:nats}
 \end{figure}
 
 In its original formulation (which is also the one implemented for Idris), the guardedness principle is quite simple, but also rather conservative. The productivity checking algorithm we present in Section~\ref{sec:productivity} accepts more functions as being productive, but is arguably not as simple.
 
 \subsection{Copatterns}
-What are copatterns? (conceptually)
+\emph{Destructor copatterns}, or simply \emph{copatterns}\,\citep{Abel13Copatterns}, provide a way of defining functions on coinductive data in terms of observations, also referred to as \emph{destructors}. Like pattern matching allows us to define functions on inductive data by analyzing the structure of the input, copatterns enable us to make experiments on functions with a result of coinductive type. Building on the intuition presented in Section~\ref{sec:codata}, we begin by defining an infinite list by observations, \texttt{Stream}, in the same vein as \texttt{CoList}:
+
+\begin{figure}
+\begin{alltt}
+codata Stream : Type -> Type where
+  head : Stream a -> a
+  tail : Stream a -> Stream a 
+\end{alltt}
+\caption{An infinite list defined by observations.}
+\label{fig:stream}
+\end{figure}
+
+The syntax for \texttt{codata} definitions presented in Figure~\ref{fig:stream} is quite similar to the existing syntax shown in Figure~\ref{fig:stream_current}. The major difference is that we no longer define constructors, but observations. On a \texttt{Stream}, two observations can be made: \texttt{head} and \texttt{tail}. The former provides us with an element of a stream in a given state, while the latter gives us with the rest of the infinite stream, in effect representing a ``transition'' to a new state where another element can be observed with \texttt{head}. This \texttt{Stream} definition can be used to define the \texttt{nats} function from Figure~\ref{fig:nats} using copatterns, as shown in Figure~\ref{fig:nats_copatterns}.
+
+\begin{figure}
+\begin{alltt}
+nats : Stream Nat
+head nats = Z
+tail nats = map S nats
+\end{alltt}
+\caption{A definition of \texttt{nats} using copatterns.}
+\label{fig:nats_copatterns}
+\end{figure}
+
+Because the resulting type of \texttt{nats} is coinductive, we can use copatterns to define the outcomes of our observations. The intuition is that in the initial state, the \texttt{head} observation will return \texttt{Z}. Making a \texttt{tail} observation results in a new state where all elements of \texttt{nats} are incremented by one (using the \texttt{S} constructor for natural numbers). Therefore, the outcome of making a subsequent \texttt{head} observation is \texttt{S Z}. As we can increase a number infinitely many times, we can also make infinitely many \texttt{tail} observations. Note that when we apply copatterns, projection happens on the ``outside'' of definitions, as opposed to pattern matching, where projections on parameters happens ``inside'' of definitions. To make this more clear, consider the definition of \texttt{map} in Figure~\ref{fig:map_copatterns}.
+
+\begin{figure}
+\begin{alltt}
+map : (a -> b) -> Stream a -> Stream b
+head (map f s) = f (head s)
+tail (map f s) = map f (tail s)
+\end{alltt}
+\caption{The \texttt{map} function defined with copatterns.}
+\label{fig:map_copatterns}
+\end{figure}
+
+For \texttt{map}, it is clear that the copatterns are applied on the entire definition \texttt{map f s}. Projections on the entire definition make sense because \texttt{map f s} has coinductive type, and can therefore be the subject of observations. In this sense, copatterns can be said to be dual to pattern matching in the same way that coinductive data is dual to inductive data. With pattern matching, we can analyze how data has been constructed, and with copatterns we can define the outcome of observations. Where pattern matching is a way of processing input, copatterns provide the means for describing output. In continuation of this description, the behaviour of copatterns during evaluation becomes interesting, but we will defer this discussion to Section~\ref{sec:implementing-copatterns}.
+
+In general, copatterns are used whenever we define a function that results in something coinductive. Nevertheless, there are some cases where definitions do not benefit from the use of copatterns, even though their result is coinductive. These are discussed in Section~\ref{sec:copattern_in_idris_productivity_checker}.
+
+% Dual to pattern matching
+
 % Copatterns in Agda
 
 % Inductively defined data can be analyzed by defining functions on that data by traditional pattern matching, where a \emph{pattern} is a (finite and valid) combination of constructor applications for the given data. In this respect, 
@@ -104,3 +183,6 @@ What are copatterns? (conceptually)
 % \end{alltt}
 
 % \texttt{List a} consists of two data constructors, \texttt{Nil} and \texttt{Cons}. Because these two constructors constitute the only that we can construct a \texttt{List a}, 
+
+\subsection{Existing Implementations of Copatterns}
+% Copatterns in Agda and Mini-Agda

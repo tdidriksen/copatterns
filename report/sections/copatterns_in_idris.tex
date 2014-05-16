@@ -119,6 +119,7 @@ headtail' s = head (Force (tail s))
 We have already argued that observations can be modeled by auxiliary functions and pattern matching. Therefore, there should exist a straightforward transformation from the the \texttt{headtail'} function to the \texttt{headtail} function. Consequently, programming with observations would not require any changes to the core type theory either. As the idea of \texttt{Inf} already exists for the current implementation of codata in Idris, it should be possible to reuse this idea for implementing codata by observations and copatterns.
 
 \subsection{Productivity Checker}
+\label{sec:copattern_in_idris_productivity_checker}
 
 %How can we fit the proposed approach to productivity into Idris.
 
