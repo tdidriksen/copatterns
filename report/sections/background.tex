@@ -186,4 +186,45 @@ In general, copatterns are used whenever we define a function that results in so
 % \texttt{List a} consists of two data constructors, \texttt{Nil} and \texttt{Cons}. Because these two constructors constitute the only that we can construct a \texttt{List a}, 
 
 \subsection{Existing Implementations of Copatterns}
-% Copatterns in Agda and Mini-Agda
+Copatterns already exists in some language, for example in Agda\todo{ref}. Most of this is implemented in a similar fashion to what was described earlier. A key difference is how coinductive types are defined. A coinductive type is defined as a record type with a coinductive flag. An example of this can be seen in Figure~\ref{fig:agda_stream}. Notice the implicit sizes. These are not strictly necessary, but are needed if the user wants to productivity check using sized types rather than guardedness. These different techniques for are discussed in Section~\ref{sec:related_work}. The individual observations are defined as the fields of the record type.
+
+\begin{figure}
+\begin{alltt}
+record Stream \{i : Size\} (A : Set) : Set where
+  coinductive
+  field
+    head : A
+    tail : \{j : Size< i\} ->  Stream \{j\} A
+open Stream
+\end{alltt}
+\caption{Sized Stream definition in Agda.}
+\label{fig:agda_stream}
+\end{figure}
+
+The copatterns themselves are almost identical to what has been discussed earlier. A simple example not needing sized types to check for productivity is \texttt{repeat} from Figure~\ref{fig:agda_repeat}, as this passes the guardedness check.
+
+\begin{figure}
+\begin{alltt}
+repeat : \{A : Set\} -> A -> Stream A
+head (repeat a) = a
+tail (repeat a) = repeat a 
+\end{alltt}
+\caption{Repeat cofunction in Agda}
+\label{fig:agda_repeat}
+\end{figure}
+
+If we want to write something more advanced, we have to involve sized types. Earlier we saw a definition of a stream of natural numbers. An Agda implementation of this is exemplified in Figure~\ref{fig:agda_nats}. Since this does not pass Agdas guardedness check, we have to help the productivity checker with sized types.
+
+\begin{figure}
+\begin{alltt}
+map : \{i A B\} (f : A -> B) -> (s : Stream \{i\} A) -> Stream \{i\} B
+head (map \{i\} f s)     = f (head s)
+tail (map \{i\} f s) \{j\} = map \{j\} f (tail s \{j\})
+
+nats : \{i : Size\} -> Stream \{i\} Nat
+head (nats \{i\})     = Z
+tail (nats \{i\}) \{j\} = map \{j\} S (nats \{j\})
+\end{alltt}
+\caption{Nats in Agda.}
+\label{fig:agda_nats}
+\end{figure}

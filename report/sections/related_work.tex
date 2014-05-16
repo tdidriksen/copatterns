@@ -41,6 +41,7 @@ In recent work, Atkey and McBride\,\citep{AtkeyMcBride13} have developed an expr
 
 
 \subsection{Sized Types}
+\label{sec:sized_types}
 The idea of sized types is that instead of determining termination using a syntactic check, such as it is the case for guarded corecursion, size information is added to the type system. This enables the user to write programs with stronger specifications (in terms of types), such that only  arguments of a certain size are accepted or that the size of the output is guaranteed to be bounded by some size. The term ``size'' is used quite broadly here, without implying any specific structure of the data. Note that unlike the size-change principle or guarded corecursion, approaches using sized types for termination checking both inductive and coinductive data within the same system have been presented.
 
 Sized types for termination checking were first proposed by Hughes, Pareto, and Sabry\,\citep{Hughes96} for reactive systems, where each data type introduced into a program is associated with a family of sized types indicating their bounds. A similar idea was developed by Amadio and Coupet-Grimal\,\citep{Amadio98}, where guard conditions are introduced into the type system to ensure the productivity of coinductive data, following the work of Coquand\,\citep{Coquand94} and Gim\'{e}nez\,\citep{Gimenez95}.

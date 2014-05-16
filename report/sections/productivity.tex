@@ -39,7 +39,7 @@ What we ultimately seek is a productivity checking algorithm for definitions wit
 \subsection{Proposed Solution}
 The basic idea of our proposal is \textit{time measurement}. We wish to always know how many observations we can safely make on a given recursive reference. To do this we use time as an analogy. To define what happens at a given time we can only refer to what has happened earlier. Each observation in a copattern says what happens one time unit later. For this we will exemplify using days. If a given function \texttt{f} ``happens'' on day $\tau$, then the first observation on \texttt{f} happens on day $\tau+1$, the second observation on day $\tau+2$ etc. If we wish to define what happens on any given day $\tau+n$ we can only refer to things happening earlier, on day $D$ where $\tau+n\, \textgreater \,D$. Any definition that comply with this is said to be productive.
 
-In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these time measures. Since both the \texttt{head} and the \texttt{tail} cases are one observation deep, they both get time measure $\tau+1$. Now we must look on the right hand sides of these observations. The \texttt{head} observation is simple as there are no recursive calls. This gets the time measure $always$ as we assume \texttt{Z} is always known. In the \texttt{tail} observation we have a recursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time of \texttt{zeros}. We can say that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,always$ and in the \texttt{tail} $\tau+1\,\textgreater\,\tau$. Note that all these annotations can be inferred, and does not need the user to specify them.
+In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these time measures. Since both the \texttt{head} and the \texttt{tail} cases are one observation deep, they both get time measure $\tau+1$. Now we must look on the right hand sides of these observations. The \texttt{head} observation is simple as there are no recursive calls. This gets the time measure $stable$ \todo{possible Krishnaswami ref} as we assume \texttt{Z} is always known. In the \texttt{tail} observation we have a recursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time of \texttt{zeros}. We can say that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,stable$ and in the \texttt{tail} $\tau+1\,\textgreater\,\tau$. Note that all these annotations can be inferred, and does not need the user to specify them.
 
 \begin{figure}
 \begin{tabular}{l c}
@@ -53,7 +53,7 @@ tail zeros = zeros
 \begin{minipage}{3in}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 zeros$_{\tau}$ : Stream Nat
-head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{always}$
+head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ zeros$_{\tau}$ = zeros$_{\tau}$
 \end{Verbatim}
 \end{minipage}
@@ -76,7 +76,7 @@ tail zeros' = tail zeros'
 \begin{minipage}{3in}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 zeros'$_{\tau}$ : Stream Nat
-head$_{\tau+1}$ zeros'$_{\tau}$ = Z$_{\tau-1}$
+head$_{\tau+1}$ zeros'$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ zeros'$_{\tau}$ = tail$_{\tau+1}$ zeros'$_{\tau}$
 \end{Verbatim}
 \end{minipage}
@@ -92,7 +92,7 @@ Sometimes we want to write definitions that depend on other functions with coind
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 nats$_{\tau}$ : Stream Nat
-head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{\tau-1}$
+head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ zeros$_{\tau}$ = map S nats$_{?}$
 \end{Verbatim}
 \caption{A Stream of all the natural numbers.}
@@ -116,7 +116,7 @@ Making the specification is fairly simple. We just have to find the worst case f
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 nats$_{\tau}$ : Stream Nat
-head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{\tau-1}$
+head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ zeros$_{\tau}$ = map S nats$_{\tau}$
 \end{Verbatim}
 \caption{A Stream of all the natural numbers with full time annotations.}
@@ -145,14 +145,14 @@ Creating these specifications again is simple, and inferable. To find $\upsilon_
 \subsubsection{Known Limitations}
 There are a few limitations that we have discovered. In this section we will present the known limitations and discuss how to possibly solve them.
 
-One limitation is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $H+1\,\textgreater\,H+2$. This can be solved by checking such references directly. In this case since \texttt{head tail f} is directly defined we can say that \texttt{head f} is productive if \texttt{head tail f} is productive.
+One limitation is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $\tau+1\,\textgreater\,\tau+2$. This can be solved by checking such references directly. In this case since \texttt{head tail f} is directly defined we can say that \texttt{head f} is productive if \texttt{head tail f} is productive.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
-h$_{H}$ : Stream Nat
-head$_{H+1}$ h$_{H}$         \,= head$_{H+2}$ tail$_{H+1}$ h$_{H}$
-head$_{H+2}$ tail$_{H+1}$ h$_{H}$ = Z$_{H-1}$
-tail$_{H+2}$ tail$_{H+1}$ h$_{H}$ = tail$_{H+1}$ h$_{H}$
+h$_{\tau}$ : Stream Nat
+head$_{\tau+1}$ h$_{\tau}$         = head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$
+head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = Z$_{stable}$
+tail$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = tail$_{\tau+1}$ h$_{\tau}$
 \end{Verbatim}
 \caption{An example of forward referencing.}
 \label{fig:forwardRef}
@@ -162,9 +162,9 @@ Another limitation is functions returning arbitrary functions. In Figure~\ref{fi
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
-i$_{I}$ : Nat -> Stream Nat
-head$_{I+1}$ (i n)$_{I}$ = Z$_{I-1}$
-tail$_{I+1}$ (i n)$_{I}$ = (funList !! n) i$_{?}$
+i$_{\tau}$ : Nat -> Stream Nat
+head$_{\tau+1}$ (i n)$_{\tau}$ = Z$_{\tau-1}$
+tail$_{\tau+1}$ (i n)$_{\tau}$ = (funList !! n) i$_{?}$
 
 funList : List (Stream a -> Stream a)
 funList = [id, id, id]
