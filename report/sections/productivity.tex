@@ -7,31 +7,60 @@ Before delving into a description of our proposal for a productivity checking al
 \subsection{Lazy Evaluation: The Haskell Approach}
 It may be compelling to think that we can simply model coinductive data in the same way as it is done in Haskell, by evaluating all expressions lazily. Then any productivity algorithm would work for Haskell as well, making the result more generally applicable. The lazy evaluation approach, however, is insufficient in several aspects.
 
-First and foremost, if we insist on making no distiction between inductive and coinductive data in our type system (Haskell makes no distinction), subject reduction is lost in a dependently typed system such as Idris\,\citep{Abel13Copatterns}. While we will not unfold the argument in its entirety here, the problem lies in the fact that coinductive data is modeled as the \emph{construction} of infinite trees, making dependent pattern matching possible on codata, rather than in terms of its \emph{destructors}. Naturally, we want to preserve subject reduction in the Idris type system.
-
-Secondly, Idris has the Church-Rosser property, meaning that distinct reduction strategies lead to the same normal form\,\citep{BradyIdrisImpl13}. Furthermore, the total part of Idris is strongly normalizing, such that it enjoys the \emph{strong} Church-Rosser property\,\citep{Turner04totalfunctional}. This means that not only will every reduction strategy leading to a normal form lead to the same normal form, but \emph{any} reduction strategy must lead to a normal form. In Haskell, many definitions will lead to a normal form under lazy evaluation, while eager evaluation would lead to infinite recursion. Therefore, exploiting lazy evaluation in the total part of Idris would mean that it would no longer have the strong Church-Rosser property.
-
-\subsection{Productivity Checking with Sized Types}
-As shown by Abel and Pientka\,\citep{Abel13Wellfounded}, verifying the productivity of coinductive definitions with copatterns is indeed possible using sized types. Thus, the main argument against using sized types is one of usability, from the point of view of the Idris user. Thibodeau\,\citep{Thibodeau11} emphasizes that size annotations generally make the code harder to read and seem unnecessary (see Section~\ref{sec:related_work}). In our own experience, size annotations do place quite a burden of bookkeeping upon the user. While having more expressive types is generally considered a value tool for building correct programs, sized types do have a tendency to become something you use in order to satisfy the productivity checker, rather than because it leads to clearer type specifications. Because totality is optional in Idris (as opposed to in Agda, for instance), this means that in a practical programming setting, some users would most likely be inclined to switch off productivity checking for coinductive definitions, or refrain from using them entirely.
-
-This argument is only valid as long as we have no way to fully reconstruct all size annotations. Once we do (if ever), the burden of sized types can be placed entirely upon the compiler. At such point, termination checking with sized types would seem like a fine approach.
-
-\subsection{Guarded Corecursion}
-In its original form presented by Coquand\,\citep{Coquand94} and Gim\'{e}nez\,\citep{Gimenez95}, the guardedness condition is generally too restrictive, as exemplified in Section~\ref{sec:related_work}. The work done on the ESFP system by Telford and Turner\,\citep{Telford97ensuringstreams,Telford98ensuringthe} makes the guardedness criterion more generally applicable, even though some problems still remain, such as handling indirect application to corecursive functions. An example of this problem is the \texttt{g} function in Figure~\ref{fig:TelfordTurnerProblems}, whose guardedness cannot be determined due to the indirect call to \texttt{id}. The function \texttt{f} is not considered guarded within their system because forward references may not be made to the rest of the process, i.e. the head of \texttt{f} cannot refer to the tail of \texttt{f}.
+First and foremost, if we insist on making no distiction between inductive and coinductive data in our type system (Haskell makes no distinction), subject reduction is lost in a dependently typed system\,\citep{Abel13Copatterns}. The problem lies in the fact that coinductive data is modeled as the \emph{construction} of infinite trees, making dependent pattern matching possible on codata, rather than in terms of its \emph{destructors}. Consider the type \texttt{U} in Figure~\ref{fig:subject_reduction_problem}, with inhabitant \texttt{u}. The equality \texttt{u = C u} in the type of \texttt{eqU} holds when we allow dependent pattern matching on \texttt{x} in \texttt{eq}, since it allows the type system to reduce \texttt{x} to \texttt{C y}. In this case the type of \texttt{refl} in \texttt{eq} becomes \texttt{C y = force (C y)}, which should hold. However, if we replace the right-hand side of \texttt{eq} with \texttt{refl}, a type error occurs since \texttt{u} is not equal to \texttt{C u} in \texttt{eqU}, because the resulting type of this right-hand side would be \texttt{refl : u = force u}, which should not hold. Consequently, the type of \texttt{eq} changes when we do dependent pattern matching on its input, \texttt{x}, which means that subject reduction is lost. This problem is explained in greater detail by Abel et al.\,\citep{Abel13Copatterns}, and is also discussed in a correspondence initiated by Danielsson on the Agda mailing list\,\citep{OuryCounterexample}. Naturally, we want to preserve subject reduction in the Idris type system. When we are able to distinguish between inductive and coinductive data, one solution to this problem is to treat coinductive data lazily, making examples like the one in Figure~\ref{fig:subject_reduction_problem} ill-typed. This approach, which is also implemented in Idris, is discussed in Section~\ref{sec:copatterns_in_idris}.
 
 \begin{figure}
 \begin{alltt}
+data U : Type where         -- No distinction between data and codata
+  C : U -> U
+
+fix : (a -> a) -> a
+fix f = f (fix f)
+
+u : U
+u = fix u
+
+force : U -> U
+force x = case x of
+            C y => C y
+
+eq : (x : U) -> x = force x
+eq x = case x of
+         C y => refl
+
+eqU : u = C u
+eqU = eq u
+\end{alltt}
+\caption{Oury's counterexample\,\citep{OuryCounterexample} in a dependently typed language with Haskell-like syntax. Here, \texttt{=} denotes propositional equality, with the sole constructor \texttt{refl}. Dependent pattern matching happens with \texttt{case} expressions.}
+\label{fig:subject_reduction_problem}
+\end{figure}
+
+Another argument against the Haskell approach is that the core type theory underlying Idris is believed to have the Church-Rosser property, meaning that distinct reduction strategies lead to the same normal form\,\citep{BradyIdrisImpl13}. Furthermore, the total part of Idris is strongly normalizing, such that it enjoys the \emph{strong} Church-Rosser property\,\citep{Turner04totalfunctional}. This means that not only will every reduction strategy leading to a normal form lead to the same normal form, but \emph{any} reduction strategy must lead to a normal form. In Haskell, many definitions will lead to a normal form under lazy evaluation, while eager evaluation would lead to infinite recursion. Therefore, exploiting lazy evaluation in the total part of Idris would mean that it would no longer have the strong Church-Rosser property.
+
+\subsection{Productivity Checking with Sized Types}
+As shown by Abel and Pientka\,\citep{Abel13Wellfounded}, verifying the productivity of coinductive definitions with copatterns is indeed possible using sized types. Thus, the main argument against using sized types is one of usability, from the point of view of the Idris user. Thibodeau\,\citep{Thibodeau11} emphasizes that size annotations generally make the code harder to read and seem unnecessary (see Section~\ref{sec:related_work}). In our own experience, size annotations place quite a burden of bookkeeping upon the user, as they have a tendency to become a tool that is used to satisfy the productivity checker, instead of leading to clearer type specifications.
+
+Because totality is optional in Idris for definitions that to not appear in types (as opposed to in Agda, for instance), this means that in a practical programming setting, some users would most likely be inclined to switch off productivity checking for coinductive definitions, or refrain from using them entirely.
+
+This argument is only valid as long as we have no way to fully reconstruct all size annotations. Once we do (if ever), the burden of sized types can be placed entirely upon the compiler. At such point, termination checking with sized types would seem like a useful approach.
+
+\subsection{Guarded Corecursion}
+In its original form presented by Coquand\,\citep{Coquand94} and Gim\'{e}nez\,\citep{Gimenez95}, the guardedness condition is generally too restrictive, as discussed in Section~\ref{sec:related_work}. The work done on the ESFP system by Telford and Turner\,\citep{Telford97ensuringstreams,Telford98ensuringthe} makes the guardedness criterion more generally applicable, even though some problems still remain, such as handling indirect application to corecursive functions. An example of this problem is the \texttt{g} function in Figure~\ref{fig:TelfordTurnerProblems}, whose guardedness cannot be determined due to the indirect call to another function. In this case, this other function is the identity function, but the point is that the result of \texttt{(fst funPair)} could have been any function. The function \texttt{f} is not considered guarded within their system because forward references may not be made to the rest of the process, i.e. the head of \texttt{f} cannot refer to the tail of \texttt{f}.
+
+\begin{figure}
+\begin{alltt}
+-- f = 1 :: 1 :: \ldots                            -- g = 1 :: 1 :: \ldots
 f = (head (tail f)) :: (1 :: f)                 g = 1 :: ((fst funPair) g)
                                                 where funPair = (id, id)
 \end{alltt}
-\caption{Two types of functions not deemed productive by the extended guardedness criterion by Telford and Turner\,\citep[Section6.3]{Telford98ensuringthe}. Here, \texttt{::} is the cons operator for a hypothetical definition of streams without copatterns, and \texttt{id} is the identity function. The definitions of \texttt{head} and \texttt{tail} are as one would expect.} 
+\caption{Two types of functions not deemed productive by the extended guardedness criterion by Telford and Turner\,\citep[Section~6.3]{Telford98ensuringthe}. Here, \texttt{::} is the cons operator for a hypothetical definition of streams without copatterns, and \texttt{id} is the identity function. The functions \texttt{head} and \texttt{tail} are defined by pattern matching.} 
 \label{fig:TelfordTurnerProblems}
 \end{figure}
 
-Abel\,\citep{Abel99terminationchecking} argues that termination analysis should abstract from the syntactic structure of the program being analyzed, since this makes the outcome of the analysis prone to small changes in program structure. While this argument seems sensible, the advantage of a syntactic check is that productivity does not depend on the user's ability or willingness to apply the right size annotations in the right places, as opposed to what is currently the case for sized types.
+Abel\,\citep{Abel99terminationchecking} argues that termination analysis should abstract from the syntactic structure of the program being analyzed to avoid making the outcome of the analysis susceptible to small changes in program structure. While this is true, non-syntactic checks can require the user to pay more attention to the productivity checker, which might not always be advantageous. 
 
 \paragraph{}
-What we ultimately seek is a productivity checking algorithm for definitions with copatterns that covers as many cases as possible, without burdening the user too much. In the following, we will provide a detailed description of our proposal.
+What we ultimately seek is a productivity checking algorithm for definitions with copatterns that covers as many realistic cases as possible, without burdening the user too much. In the following, we will provide a detailed description of our proposal.
 %An explanation of our proposal for productivity checking in collaboration with size-change termination.
 % Why not guardedness?
 % Why not sized types? 
@@ -43,6 +72,7 @@ In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these tim
 
 \begin{figure}
 \begin{tabular}{l c}
+
 \begin{minipage}{3in}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 zeros : Stream Nat
@@ -57,6 +87,7 @@ head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ zeros$_{\tau}$ = zeros$_{\tau}$
 \end{Verbatim}
 \end{minipage}
+
 \end{tabular}
 \caption{An infinite stream of zeros. To the left is the implementation, and to the right is the implementation decorated with depth measures.}
 \label{fig:zeros}
@@ -66,6 +97,7 @@ In Figure~\ref{fig:zerosprime} we see a faulty implementation of \texttt{zeros} 
 
 \begin{figure}
 \begin{tabular}{l c}
+
 \begin{minipage}{3in}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 zeros' : Stream Nat
@@ -80,6 +112,7 @@ head$_{\tau+1}$ zeros'$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ zeros'$_{\tau}$ = tail$_{\tau+1}$ zeros'$_{\tau}$
 \end{Verbatim}
 \end{minipage}
+
 \end{tabular}
 \caption{A non-productive implementation of zeros.}
 \label{fig:zerosprime}
@@ -87,7 +120,7 @@ tail$_{\tau+1}$ zeros'$_{\tau}$ = tail$_{\tau+1}$ zeros'$_{\tau}$
 
 \subsubsection{Coinductive Definitions with Coinductive Parameters}
 
-Sometimes we want to write definitions that depend on other functions with coinductive parameters. When decorating \texttt{nats} in Figure~\ref{fig:nats} we can not give the right hand side of the \texttt{tail} observation an accurate time measure as we don't know what \texttt{map} does to \texttt{nats}. We must first analyse \texttt{map} to see the effect it has on it parameters.
+Sometimes we want to write definitions that depend on other functions with coinductive parameters. When decorating \texttt{nats} in Figure~\ref{fig:nats_productivity} we can not give the right hand side of the \texttt{tail} observation an accurate time measure as we don't know what \texttt{map} does to \texttt{nats}. We must first analyse \texttt{map} to see the effect it has on it parameters.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -96,7 +129,7 @@ head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ zeros$_{\tau}$ = map S nats$_{?}$
 \end{Verbatim}
 \caption{A Stream of all the natural numbers.}
-\label{fig:nats}
+\label{fig:nats_productivity}
 \end{figure}
 
 When analysing \texttt{map} we introduce a new time parameter for each coinductive input the function takes. This is not used for checking \texttt{map} but is used for callers of map to see how many observation \texttt{map} performs on a given input. This means that instead of just checking the productivity of \texttt{map} we also create a \textit{specification} for \texttt{map} that other functions can then use. The caller can then judge if the call would be productive or not.
