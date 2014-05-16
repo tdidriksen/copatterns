@@ -20,6 +20,7 @@ data TypedExpr
   | TEData       Type Sym
   | TECodata     Type Sym
   | TEGlobLet    Type Sym (Maybe Params) TypedExpr
+  | TEValue      Type
   deriving (Eq, Show)
 
 getTypeAnno :: TypedExpr -> Type

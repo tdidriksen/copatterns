@@ -62,6 +62,7 @@ When juxtaposing these types, it becomes apparent that the ways we can construct
 Since coinductive data has no inherent structure, it does not always make sense to talk about equality between two instances of a coinductive type. Instead, it may be the case that two instances of codata give rise to the same sequence of observations, such that they cannot be told apart by the results of our observations. When instances of codata are observationally indistinguishable in this way, we say they are \emph{bisimilar}, as one instance simulates the behaviour of the other. Further details on this phenomenon can be found in the tutorial by Jacobs and Rutten\,\citep{Jacobs97atutorial}.
 
 \subsection{The Current Status of Codata in Idris}
+\label{sec:stateinidris}
 Coinductive data types already exist in Idris, although they are not defined by observations\todo{Make sure that definitions by observations are mentioned before this point}. Instead, they are defined by constructors, as exemplified with the infinite list definition, called \texttt{Stream}, in Figure~\ref{fig:stream_current}.
 
 \begin{figure}

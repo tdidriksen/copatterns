@@ -3,6 +3,7 @@ module Examples where
 import Expr
 import TypeChecker
 import Control.Applicative
+import Eval
 
 -- Root Example
 rootEnv = case buildRootEnv root of
@@ -14,6 +15,7 @@ listOfRootEx = case checkRootEx of
                  Right(k) -> k
                  Left(_) -> []
 listOfTypes = pure (map getTypeAnno) <*> checkRootEx
+buildEvalRootEnv = pure buildEvalEnv <*> checkRootEx
 
 -- Natural numbers
 natBody = TVari [
