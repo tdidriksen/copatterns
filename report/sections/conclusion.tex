@@ -9,4 +9,4 @@ Following an investigation into the existing literature on the size-change princ
 
 Concerning Idris, we expect that it will not be necessary to make any changes to the core type theory, since coinductive data defined by observations and function definitions with copatterns can be reduced to already existing constructs. The interplay between the size-change termination checker and our proposed productivity checking algorithm will be interesting, since it is possible for definitions with copatterns to be size-change terminating without being productive according to our algorithm.
 
-
+We are very optimistic about our future work on implementing these changes in Idris. The solution we propose for productivity checking seems quite robust, although it has a few shortcomings. The fact that it seems unlikely that we will have to change the core type theory in Idris will make the implementation easier, even though other unforseen complications will possibly occur. In conclusion, we are looking forward to being able to use copatterns in Idris.
