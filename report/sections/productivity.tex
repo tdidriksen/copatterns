@@ -43,6 +43,7 @@ As shown by Abel and Pientka\,\citep{Abel13Wellfounded}, verifying the productiv
 This argument is only valid as long as we have no way to fully reconstruct all size annotations. Once we do (if ever), the burden of sized types can be placed entirely upon the compiler. At such point, totality checking with sized types would seem like a practical approach.
 
 \subsection{Guarded Corecursion}
+\label{sec:guarded_cored}
 In its original form presented by Coquand\,\citep{Coquand94} and Gim\'{e}nez\,\citep{Gimenez95}, the guardedness condition is generally too restrictive, as discussed in Section~\ref{sec:related_work}. The work done on the ESFP system by Telford and Turner\,\citep{Telford97ensuringstreams,Telford98ensuringthe} makes the guardedness criterion more generally applicable, even though some problems still remain, such as handling indirect application to corecursive functions. An example of this problem is the \texttt{g} function in Figure~\ref{fig:TelfordTurnerProblems}, the guardedness of which cannot be determined due to the indirect call to another function. In this case, this other function is the identity function, but the point is that the result of \texttt{(fst~funPair)} could have been any function. The function \texttt{f} is not considered guarded within their system because forward references may not be made to the rest of the process, i.e. the head of \texttt{f} cannot refer to the tail of \texttt{f}.
 
 \begin{figure}
@@ -64,9 +65,11 @@ What we ultimately seek is a productivity checking algorithm for definitions wit
 % Why not sized types? 
 % Why not the haskell way?
 \subsection{Proposed Solution}
-The basic idea of our proposal is \textit{time measurement}. We wish to always know how many observations we can safely make on a given recursive reference. To do this we use time as an analogy. To define what happens at a given time we can only refer to what has happened earlier. Each observation in a copattern says what happens one time unit later. For this we will exemplify using days. If a given function \texttt{f} ``happens'' on day $\tau$, then the first observation on \texttt{f} happens on day $\tau+1$, the second observation on day $\tau+2$ etc. If we wish to define what happens on any given day $\tau+n$ we can only refer to things happening earlier, on day $D$ where $\tau+n\, \textgreater \,D$. Any definition that comply with this is said to be productive.
+The basic idea of our proposal is \textit{time measurement}. We wish to always know how many observations we can safely make on a given recursive reference. To do this we use time as an analogy. When defining what happens at a given time we can only refer to what has happened earlier. Each observation is defined by what happens one time unit later. We will exemplify this using days. To know what happens on any given day we can only refer to what has happened earlier than that day. If we translate the days to numerical numbers, where later days are given higher numbers, we can express this idea of only being able to reference back in time with an inequality.
 
-In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these time measures. Since both the \texttt{head} and the \texttt{tail} cases are one observation deep, they both get time measure $\tau+1$. Now we must look on the right hand sides of these observations. The \texttt{head} observation is simple as there are no recursive calls. This gets the time measure $stable$ \todo{possible Krishnaswami ref} as we assume \texttt{Z} is always known. In the \texttt{tail} observation we have a recursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time of \texttt{zeros}. We can say that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,stable$ and in the \texttt{tail} $\tau+1\,\textgreater\,\tau$. Note that all these annotations can be inferred, and does not need the user to specify them.
+If a given function \texttt{f} ``is defined'' on day $\tau$, then the first observation on \texttt{f} is defined on day $\tau+1$, the second observation on day $\tau+2$ etc. If we wish to define what is defined on any given day $\tau+n$ we can only refer to observations made earlier, on an earlier day $\phi$. We know that $\phi$ is an earlier day if $\tau+n\, \textgreater \,\phi$ holds. Any definition that comply with this is said to be productive.
+
+In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these time measures. Since \texttt{zeros} is the starting point we give that a base measure $\tau$. Both the \texttt{head} and the \texttt{tail} observations are defined one day later than \texttt{zeros}, they both get time measure $\tau+1$. To determine if \texttt{zeros} is productive we must examine the right hand sides of the observations. The \texttt{head} observation is simple as there are no corecursive calls. Therefore it gets the time measure $stable$ \todo{possible Krishnaswami ref} as we assume that \texttt{Z} is always known. We use this measure for any reference that is not corecursive. In terms of an numeric value $stable$ can be thought of as negative infinity. In the \texttt{tail} observation we have a corecursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time of \texttt{zeros}. To determine the productivity we must ensure that observations are only defined by what has already happened. Looking at this as an inequality we can see that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,stable$ and in the \texttt{tail} $\tau+1\,\textgreater\,\tau$. Note that all these annotations can be inferred.
 
 \begin{figure}
 \begin{tabular}{l c}
@@ -87,11 +90,11 @@ tail$_{\tau+1}$ zeros$_{\tau}$ = zeros$_{\tau}$
 \end{minipage}
 
 \end{tabular}
-\caption{An infinite stream of zeros. To the left is the implementation, and to the right is the implementation decorated with depth measures.}
+\caption{An infinite stream of zeros. To the left is the implementation, and to the right is the implementation decorated with time measures.}
 \label{fig:zeros}
 \end{figure}
 
-In Figure~\ref{fig:zerosprime} we see a faulty implementation of \texttt{zeros} called \texttt{zeros'}. This is not a productive implementation. We decorate the program in the same fashion as above, but this time the recursive reference in the \texttt{tail} case has time measure $\tau+1$ rather than $\tau$ because we make a right hand side observation on it. For this to be productive $\tau+1\,\textgreater\,\tau+1$ which it clearly is not. Therefore we can say that \texttt{zeros'} is not productive.
+In Figure~\ref{fig:zerosprime} we see a diverging implementation of \texttt{zeros} called \texttt{zeros'}. To establish that this is not productive we decorate the program in the same fashion as above, but this time the recursive reference in the \texttt{tail} case has time measure $\tau+1$ rather than $\tau$ because we make an observation on the right-hand side of \texttt{zeros}. For this to be productive, $\tau+1\,\textgreater\,\tau+1$ must hold which it clearly does not. Therefore we can say that \texttt{zeros'} is not productive.
 
 \begin{figure}
 \begin{tabular}{l c}
@@ -112,71 +115,73 @@ tail$_{\tau+1}$ zeros'$_{\tau}$ = tail$_{\tau+1}$ zeros'$_{\tau}$
 \end{minipage}
 
 \end{tabular}
-\caption{A non-productive implementation of zeros.}
+\caption{A non-productive implementation of \texttt{zeros}.}
 \label{fig:zerosprime}
 \end{figure}
 
 \subsubsection{Coinductive Definitions with Coinductive Parameters}
 
-Sometimes we want to write definitions that depend on other functions with coinductive parameters. When decorating \texttt{nats} in Figure~\ref{fig:nats_productivity} we can not give the right hand side of the \texttt{tail} observation an accurate time measure as we don't know what \texttt{map} does to \texttt{nats}. We must first analyse \texttt{map} to see the effect it has on it parameters.
+Sometimes we want to write definitions that depend on other functions with coinductive parameters. When decorating \texttt{nats} in Figure~\ref{fig:nats_productivity} we can not give the right hand side of the \texttt{tail} observation an accurate time measure as we don't know what \texttt{map} does to \texttt{nats}. We must first analyse \texttt{map} to see the effect it has on its parameters.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 nats$_{\tau}$ : Stream Nat
-head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{stable}$
-tail$_{\tau+1}$ zeros$_{\tau}$ = map S nats$_{?}$
+head$_{\tau+1}$ nats$_{\tau}$ = Z$_{stable}$
+tail$_{\tau+1}$ nats$_{\tau}$ = (map S nats)$_{?}$
 \end{Verbatim}
-\caption{A Stream of all the natural numbers.}
+\caption{A \texttt{Stream} of all the natural numbers, annotated with time measures.}
 \label{fig:nats_productivity}
 \end{figure}
 
-When analysing \texttt{map} we introduce a new time parameter for each coinductive input the function takes. This is not used for checking \texttt{map} but is used for callers of map to see how many observation \texttt{map} performs on a given input. This means that instead of just checking the productivity of \texttt{map} we also create a \textit{specification} for \texttt{map} that other functions can then use. The caller can then judge if the call would be productive or not.
+When analysing \texttt{map} we introduce a new time measure for each coinductive input the function takes. This measure is not used for checking the productivity \texttt{map} but is used for callers of \texttt{map} to see how many observations \texttt{map} performs on a given input. This means that in addition to checking the productivity of \texttt{map} we also create a \textit{specification} for \texttt{map} that other functions can then use, to determine whether the call to \texttt{map} would be productive or not.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 map$_{\phi, \upsilon}$ : (a -> b) -> Stream a -> Stream b
-head$_{\phi+1}$ (map f s)$_{\phi}$ = f (head$_{\upsilon+1}$ s$_{\upsilon}$)
-tail$_{\phi+1}$ (map f s)$_{\phi}$ = map f (tail$_{\upsilon+1}$ s$_{\upsilon}$)
+head$_{\phi+1}$ (map f s)$_{\phi}$ = f (head$_{\upsilon+1}$ s$_{\upsilon}$)$_{stable}$
+tail$_{\phi+1}$ (map f s)$_{\phi}$ = map f (tail$_{\upsilon+1}$ s$_{\upsilon}$)$_{\phi}$
 \end{Verbatim}
 \caption{The map function for Streams.}
 \label{fig:map}
 \end{figure}
 
-Making the specification is fairly simple. We just have to find the worst case for every input. In the case of \texttt{map} the worst case for time parameter $\upsilon$ is $\upsilon+1$. This tells us that \texttt{map} performs at most one observation on the input. This, however, does not complete the specification. Since we are interested in knowing how many observations are safe to do, and \texttt{map} only observes on its input under its own observations, this allows us to do another observation.\todo{Does this need to be more explicit?} Using the day analogy again this roughly means that tomorrow \texttt{map} will perform the observations of tomorrow. This gives us $\upsilon+1-1$ or just $\upsilon$, which means that the specification for \texttt{map} does not perform any additional observations on its input. This means we can now complete the annotation of \texttt{nats} in Figure~\ref{fig:natsComplete}. Since the specification of \texttt{map} tells us that the input remains unchanged by \texttt{map} we know that the time measure of the call to \texttt{map} with \texttt{nats} as input is $\tau$. We can therefore conclude that \texttt{nats} is productive as $\tau+1\,\textgreater\,\tau$.
+Making the specification is fairly simple. Since we are interested in knowing how many new observations \texttt{map} possibly makes on an input we are looking for the worst case for every input. In the case of \texttt{map} the worst case for time measure $\upsilon$ is $\upsilon+1$, which tells us that \texttt{map} performs at most one observation on the input. The specification, however, is not done. While it is true that \texttt{map} does make one observation on its input, it does not do so until \texttt{map} itself is observed. This means that any reference to \texttt{map} would need one more observation on its left-hand side to invoke the observations \texttt{map} makes. So even though \texttt{map} adds one observation, it does so one day later. This delay of the observation counteracts the observation map makes. We model this counteraction by subtracting one from the time measure given to $\upsilon$ in the specification.
+
+This gives us $\upsilon+1-1$ or just $\upsilon$, which means that the specification for \texttt{map} does not perform any additional observations on its input. This means we can now complete the annotation of \texttt{nats} from Figure~\ref{fig:nats_productivity}. Since the specification of \texttt{map} tells us that any input remains unchanged, we know that the time measure of the call to \texttt{map} with \texttt{nats} as input in Figure~\ref{fig:natsComplete} is $\tau$. We can therefore conclude that \texttt{nats} is productive, as $\tau+1\,\textgreater\,\tau$.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 nats$_{\tau}$ : Stream Nat
-head$_{\tau+1}$ zeros$_{\tau}$ = Z$_{stable}$
-tail$_{\tau+1}$ zeros$_{\tau}$ = map S nats$_{\tau}$
+head$_{\tau+1}$ nats$_{\tau}$ = Z$_{stable}$
+tail$_{\tau+1}$ nats$_{\tau}$ = (map S nats$_{\tau})$
 \end{Verbatim}
-\caption{A Stream of all the natural numbers with full time annotations.}
+\caption{A \texttt{Stream} of all the natural numbers with full time annotations.}
 \label{fig:natsComplete}
 \end{figure}
 
 \subsubsection{Mutual Recursion}
-For checking productivity of mutually recursive coinductive definitions we assume that we know what definitions refer to each other. Similar to the previous example we then make a specification for the function that can then be used to check the productivity of the callers. Instead of this specification saying what happens to an input parameter it says what happens to a specific call. Looking at two mutually recursive definitions \texttt{f} and \texttt{g}. For \texttt{f} we define specification $\tau_{g}$ saying what happens to the time parameter $\tau$ in \texttt{g} and vice versa we define $\upsilon_{f}$ for \texttt{g}. For the \texttt{tail} case in \texttt{f} to be productive we need that $\tau+1\,\textgreater\,\tau_{g}$ and for \texttt{g} we need $\upsilon+1\,\textgreater\,\upsilon_{f}+1$ to hold.
+For checking productivity of mutually recursive coinductive definitions, we assume that we know which definitions refer to each other. Similar to the previous example we then make a specification for each function that can then be used to check the productivity of the callers. Instead of this specification saying what happens to the input, it says what happens to a specific call. Looking at two mutually recursive definitions \texttt{f} and \texttt{g} in Figure~\ref{fig:mutRec1}. For \texttt{f} we define specification $\tau_{g}$ saying what happens to the time measure $\tau$ in \texttt{g} and vice versa we define $\upsilon_{f}$ for \texttt{g}. For the \texttt{tail} case in \texttt{f} to be productive we need that $\tau+1\,\textgreater\,\tau_{g}$ and for \texttt{g} we need $\upsilon+1\,\textgreater\,\upsilon_{f}+1$ to hold.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
-f$_{\tau}$ : Stream Nat
-head$_{\tau+1}$ f$_{\tau}$ = Z$_{\tau-1}$
+f$_{\tau,\upsilon_{f}}$ : Stream Nat
+head$_{\tau+1}$ f$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ f$_{\tau}$ = g$_{\tau_{g}}$
 
-g$_{\upsilon}$ : Stream Nat
-head$_{\upsilon+1}$ g$_{\upsilon}$ = Z$_{\upsilon-1}$
+g$_{\upsilon,\tau_{g}}$  : Stream Nat
+head$_{\upsilon+1}$ g$_{\upsilon}$ = Z$_{stable}$
 tail$_{\upsilon+1}$ g$_{\upsilon}$ = tail$_{\upsilon_{f}+1}$ f$_{\upsilon_{f}}$
 \end{Verbatim}
-\caption{A simple mutual recursive coinductive definitions.}
+\caption{Two mutually corecursive definitions.}
 \label{fig:mutRec1}
 \end{figure}
 
-Creating these specifications again is simple, and inferable. To find $\upsilon_{f}$ we look at the references to \texttt{g} in \texttt{f}. We see that there is one observation on the left hand side and none on the right hand side. For the same reason as with \texttt{map} we subtract one for the left hand ones and add one for the right hand side ones. This means that $\upsilon_{f} = \upsilon - 1$. Using the same approach for finding $\tau_{g}$ we get that $\tau_{g} = \tau$. We can now substitute these values into the inequalities from earlier and get that $\tau+1\,\textgreater\,\tau$ and $\upsilon+1\,\textgreater\,\upsilon - 1$. Therefore \texttt{f} and \texttt{g} are productive.
+Creating these specifications again is simple, and inferable. To find $\upsilon_{f}$ we look at the references to \texttt{g} in \texttt{f}. We see that there is one observation on the left hand side and none on the right hand side. For the same reason as with \texttt{map} we subtract one for the left hand observations and add one for the right hand side observations. This means that $\upsilon_{f} = \upsilon - 1$. Using the same approach for finding $\tau_{g}$ we get that $\tau_{g} = \tau$. We can now substitute these values into the inequalities from earlier and get that $\tau+1\,\textgreater\,\tau$ and $\upsilon+1\,\textgreater\,\upsilon - 1$. Therefore \texttt{f} and \texttt{g} are productive.
 
 \subsubsection{Known Limitations}
-There are a few limitations that we have discovered. In this section we will present the known limitations and discuss how to possibly solve them.
+We have discovered a few limitations to this approach. In this section we will present them and discuss possible solutions.
 
-One limitation is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $\tau+1\,\textgreater\,\tau+2$. This can be solved by checking such references directly. In this case since \texttt{head tail f} is directly defined we can say that \texttt{head f} is productive if \texttt{head tail f} is productive.
+Looking at the problems discussed in Section~\ref{sec:guarded_cored} our approach does not solve these directly. The first is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $\tau+1\,\textgreater\,\tau+2$. It is, however, easily solvable due to our use of copatterns. Since \texttt{head tail h} is directly defined we can say that \texttt{head h} is productive if \texttt{head tail h} is productive.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -185,20 +190,20 @@ head$_{\tau+1}$ h$_{\tau}$         = head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$
 head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = tail$_{\tau+1}$ h$_{\tau}$
 \end{Verbatim}
-\caption{An example of forward referencing.}
+\caption{An example ...}
 \label{fig:forwardRef}
 \end{figure}
 
-Another limitation is functions returning arbitrary functions. In Figure~\ref{fig:funList} we cannot give an accurate time measure to \texttt{(funList !! n) i} because we do not know anything about what \texttt{funList !! n} does to \texttt{i}. A way of attempting to solve this could be to try and estimate a worst case scenario for \texttt{funList}. This, however, involves a lot of unfolding risking making the productivity checker very slow, while still not being a very accurate analysis. We have not been able to find a desirable solution to this problem.
+Another limitation is functions returning arbitrary functions. In Figure~\ref{fig:funList} we cannot give an accurate time measure to \texttt{(funPair) i} because we do not know anything about what \texttt{fst funPair} does to \texttt{i}. Attempting to solve this could be done by estimating a worst case scenario for \texttt{funPair}. This, however, involves a lot of unfolding risking making the productivity checker very slow, while still not providing a very accurate analysis. We have not been able to find a desirable solution to this problem.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
-i$_{\tau}$ : Nat -> Stream Nat
-head$_{\tau+1}$ (i n)$_{\tau}$ = Z$_{\tau-1}$
-tail$_{\tau+1}$ (i n)$_{\tau}$ = (funList !! n) i$_{?}$
+i$_{\tau}$ : Stream Nat
+head$_{\tau+1}$ (i)$_{\tau}$ = Z$_{\tau-1}$
+tail$_{\tau+1}$ (i)$_{\tau}$ = (fst funPair) i$_{?}$
 
-funList : List (Stream a -> Stream a)
-funList = [id, id, id]
+funPair : (Stream a, Stream a)
+funPair = (id, id)
 \end{Verbatim}
 \caption{}
 \label{fig:funList}

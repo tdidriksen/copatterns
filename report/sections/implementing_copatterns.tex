@@ -3,7 +3,7 @@
 \label{sec:implementing-copatterns}
 %Description of our language.
 %Explains the interesting details of implementing copatterns.
-To explore the implementation of copatterns we have made a small toy language called \textit{findus}. It is a functional programming language with first-order functions and first-order types. It has the following features:
+To explore the implementation of copatterns we have made a small toy language called \textit{findus} implemented in Haskell. It is a functional programming language with first-order functions and simple first-order types. It has the following features:
 
 \begin{itemize}
 \item Inductive Types
@@ -13,7 +13,7 @@ To explore the implementation of copatterns we have made a small toy language ca
 \item Copatterns
 \end{itemize}
 
-Both inductive and coinductive types are implemented as iso-recursive types\,\cite[p. 275]{Pierce:2002:TPL:509043}. This means their types and how they are defined are very similar. The inductive types (\texttt{TRecInd}) are defined by the name of the type and then a variant type (\texttt{TVari}). The variant type contains a list which defines the constructors where the string portion is the name of the constructors and the types are the constructor parameters. The coinductive type (\texttt{TRecCoind}) is defined by its name and a list of observations that look a lot like the variant type definition, except that there is only one type per string. This makes sense as an observation does not take parameters, it only returns a type. A possible extension could be to allow observations to take parameters, but we decided against this as matching on these would just be standard pattern matching and our focus of this project was copatterns. Defining these types is done with the \texttt{ECodata} expression in Figure \ref{fig:expr}, which is defined by the name of the type and the coinductive type that defines it.
+Both inductive and coinductive types are implemented as iso-recursive types\,\cite[p. 275]{Pierce:2002:TPL:509043}. This means their implementations are very similar. The inductive types (\texttt{TRecInd} in Figure~\ref{fig:types}) are defined by the name of the type and then a variant type (\texttt{TVari}). The variant type consists of a list which defines the constructors, where the string part is the name of the constructors and the types are the types of the constructor parameters. The coinductive type (\texttt{TRecCoind}) is defined by its name and a list of observations that is similar to the variant type definition, except that there is only one type per observation. This makes sense as an observation does not take explicit parameters, so only its return type is specified. A possible extension could be to allow observations to take parameters, but we decided against this as matching on these would just be standard pattern matching and our focus of this project was copatterns. Defining coinductive date types is done with the \texttt{ECodata} expression in Figure~\ref{fig:expr}, which is defined by the name of the type and the coinductive type that defines it.
 
 \begin{figure}
 \begin{alltt}
@@ -29,7 +29,7 @@ data Type =
 \label{fig:types}
 \end{figure}
 
-Dual to pattern matching we need a way to use our coinductive types. For this we have the \texttt{EObserve} expression in Figure \ref{fig:expr}. A such expression is defined by the coinductive type that is being observed and then a list of observations. These observations are the name of the observation followed by an expression defining that observation.
+Dual to pattern matching we need a way to make observations on our coinductive types. For this we have the \texttt{EObserve} expression in Figure~\ref{fig:expr}. Such an expression is defined by the coinductive type that is being observed and a list of observations. These observations consist of the name of the observation followed by an expression defining that observation. This \texttt{EObserve} expression models copatterns.
 
 \begin{figure}
 \begin{alltt}
@@ -52,36 +52,37 @@ data Expr =
 \begin{alltt}
 -- Natural numbers
 
-natBody :: Type
+natBody :: Type                         -- nat constructors
 natBody = TVari [
-            ("Z", []), 
-            ("S", [TRecTypeVar "nat"])
+            ("Z", []),                  -- Z Constructor
+            ("S", [TRecTypeVar "nat"])  -- S Constructor
           ]
+
 natRec :: Type
-natRec = TRecInd "nat" natBody
+natRec = TRecInd "nat" natBody          -- nat inductive type
 
 nat :: Expr
-nat = EData "nat" natRec
+nat = EData "nat" natRec                -- nat data definition
 
 -- Nat Stream
 
-natStreamBody :: [(Sym, Type)]
+natStreamBody :: [(Sym, Type)]          -- natStream observations
 natStreamBody = [
-                  ("head", TGlobTypeVar "nat"),
-                  ("tail", TRecTypeVar "natStream")
+                  ("head", TGlobTypeVar "nat"),     -- Head observation
+                  ("tail", TRecTypeVar "natStream") -- Tail observation
                 ]
 
-natStreamRec :: Type
-natStreamRec = TRecCoind "natStream" natStreamBody
+natStreamRec :: Type                    -- natStream coinductive type
+natStreamRec = TRecCoind "natStream" natStreamBody  
 
-natStream :: Expr
-natStream = ECodata "natStream" natStreamRec
+natStream :: Expr                       -- natStream codata definition
+natStream = ECodata "natStream" natStreamRec  
 \end{alltt}
 \caption{Natural numbers and a stream of natural numbers}
 \label{fig:natandstream}
 \end{figure}
 
-Now that we have a way of representing inductive and coinductive types, let us look at some examples of this in use. In Figure \ref{fig:natandstream} we have the abstract syntax representation of natural numbers (\texttt{nat}) and a stream of natural numbers (\texttt{natStream}). The type \texttt{TGlobTypeVar} is used for referencing a globally defined type, and \texttt{TRecTypeVar} is a reference to a type currently being defined. From these we can define the stream of zeros in Figure \ref{fig:astzeros}. We wrap \texttt{zerosExpr} in a \texttt{EGlobLet} which is a top-level let binding without a body. Instead it makes a global definition. A such \texttt{EGlobLet} is defined by its name, its annotated type, its parameters (if any), and its expression.
+Now that we have a way of representing inductive and coinductive types, let us look at some examples of their use. In Figure~\ref{fig:natandstream} the abstract syntax representation of natural numbers (\texttt{nat}) and a stream of natural numbers (\texttt{natStream}) is shown. The type \texttt{TGlobTypeVar} is used for referencing globally defined type, and \texttt{TRecTypeVar} is a reference to the type currently being defined. From these we can define the stream of zeros in Figure~\ref{fig:astzeros}. We wrap \texttt{zerosExpr} in a \texttt{EGlobLet} which is a top-level let binding existing in a global scope. A such \texttt{EGlobLet} is defined by its name, its annotated type, its parameters (if any), and its body.
 
 \begin{figure}
 \begin{alltt}
@@ -89,7 +90,7 @@ zerosLet :: Expr
 zerosLet = EGlobLet "zeros" (TGlobTypeVar "natStream") Nothing zerosExpr
 
 zerosExpr :: Expr
-zerosExpr = EObserve $ TGlobalTypeVar "natStream" [
+zerosExpr = EObserve (TGlobalTypeVar "natStream") [
             ("head", EVar "Z"),
             ("tail", EVar "zeros")
         ]
@@ -99,31 +100,18 @@ zerosExpr = EObserve $ TGlobalTypeVar "natStream" [
 \end{figure}
 
 \subsection{Type checking}
-When checking and typing an observation like zeros we need to check that each observation has to correct type. Since \texttt{head} has the type \texttt{TGlobalTypeVar "nat"}, the expression under the head observation (\texttt{EVar "Z"}) must have the type \texttt{TGlobalTypeVar "nat"}, which it does. Similar for the \texttt{tail} case the expression must have type \texttt{TGlobalTypeVar "natStream"}, which we have as \texttt{EVar "zeros"} is a recursive reference with type \texttt{TGlobalTypeVar "natStream"}. If this holds, and all observations are covered the entire expression has type \texttt{TGlobalTypeVar "natStream"}.
+$Findus$ is type checked according to the rules described by Pierce\,\cite{Pierce:2002:TPL:509043}. This means that everything is annotated, and nothing is inferred.
+
+When type checking copatterns we know from Section~\ref{sec:copatterns} that the type of the result of performing an observation depends on the type of the observation. This means that the expression defining an observation must have the same type as the observation. In the example of \texttt{natStream}, the expression defining a \texttt{head} observation must be of type \texttt{TGlobTypeVar "nat"}. As such type checking copatterns is fairly simple, as we just need to check that the types between observation and definitions match.
 
 \subsection{Evaluation}
-Due to the nature of coinductive types they are not actually evaluated until they are observed. As oppose to the approach discussed in Section \ref{sec:stateinidris}, with copatterns we need not rely on lazy evaluation. Looking at the \texttt{nats} example from earlier its implementation with copatterns can be seen in Figure \ref{fig:natscopatterns}. Evaluating \texttt{nats}
-does not make much sense as there is nothing to evaluate. The evaluation does not occur until we observe \texttt{nats}. When observing \texttt{nats} we simply look at the definitions and unfold them. Assuming an evaluation function \texttt{e} \todo{maybe epsilon instead}we have the following examples of reductions:
+Due to the nature of coinductive types they are not actually evaluated until they are observed. As oppose to the approach discussed in Section~\ref{sec:stateinidris}, with copatterns we need not rely on lazy evaluation. Looking at the \texttt{nats} example from its implementation with copatterns can be seen in Figure~\ref{fig:nats_copatterns}. Evaluating \texttt{nats} in itself does not make much sense as there is nothing to evaluate. Evaluation does not occur until we observe \texttt{nats}. When observing \texttt{nats} we simply look at the definitions and unfold them. Assuming an evaluation function $\epsilon$ we have the following examples of reductions:
 
-\begin{alltt}
-e [head nats] = Z
-e [tail nats] = map S nats
-e [head tail nats] = e [head (map S nats)] = e [S (head nats)] = S Z
-e [tail tail nats] = e [tail (map S nats)] = map S (tail nats)
-\end{alltt}
+\begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
+$\epsilon$[head nats] = Z
+$\epsilon$[tail nats] = map S nats
+$\epsilon$[head tail nats] = $\epsilon$[head (map S nats)] = $\epsilon$[S (head nats)] = S Z
+$\epsilon$[tail tail nats] = $\epsilon$[tail (map S nats)] = map S (tail nats)
+\end{Verbatim}
 
-This way of unfolding definitions works as long as the coinductive definition is productive which will be discussed in Section \ref{sec:productivity}. 
-
-\begin{figure}
-\begin{alltt}
-nats : Stream Nat
-head nats = Z
-tail nats = map S nats
-
-map : (a -> b) -> Stream a -> Stream b
-head (map f s) = f (head s)
-tail (map f s) = map f (tail s)
-\end{alltt}
-\caption{\texttt{nats} example with copatterns.}
-\label{fig:natscopatterns}
-\end{figure}
+We evaluate by unfolding until we either cannot unfold a coinductive definition anymore, or get an expression that is not coinductive. We know that a coinductive definition cannot be unfolded if it there does not exist a rewrite rule for it. There exists for example no rewrite rule for \texttt{nats} as it is defined by the observations that can be made on it, but there does exist one for \texttt{tail nats} as it is directly defined as \texttt{map S nats}. For this to work we require that this unfolding of definitions cannot cause an infinite series of unfolds, which means that coinductive definition have to be productive. Productivity will be discussed further in Section~\ref{sec:productivity}. 

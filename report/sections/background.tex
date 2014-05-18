@@ -112,6 +112,7 @@ nats = Z :: map S nats
 In its original formulation (which is also the one implemented for Idris), the guardedness principle is quite simple, but also rather conservative. The productivity checking algorithm we present in Section~\ref{sec:productivity} accepts more functions as being productive, but is arguably not as simple.
 
 \subsection{Copatterns}
+\label{sec:copatterns}
 \emph{Destructor copatterns}, or simply \emph{copatterns}\,\citep{Abel13Copatterns}, provide a way of defining functions on coinductive data in terms of observations, also referred to as \emph{destructors}. Like pattern matching allows us to define functions on inductive data by analyzing the structure of the input, copatterns enable us to make experiments on functions with a result of coinductive type. Building on the intuition presented in Section~\ref{sec:codata}, we begin by defining an infinite list by observations, \texttt{Stream}, in the same vein as \texttt{CoList}:
 
 \begin{figure}
@@ -190,7 +191,7 @@ In general, copatterns are used whenever we define a function that results in so
 % \texttt{List a} consists of two data constructors, \texttt{Nil} and \texttt{Cons}. Because these two constructors constitute the only that we can construct a \texttt{List a}, 
 
 \subsection{Existing Implementations of Copatterns}
-Copatterns already exists in some language, for example in Agda\todo{ref}. Most of this is implemented in a similar fashion to what was described earlier. A key difference is how coinductive types are defined. A coinductive type is defined as a record type with a coinductive flag. An example of this can be seen in Figure~\ref{fig:agda_stream}. Notice the implicit sizes. These are not strictly necessary, but are needed if the user wants to productivity check using sized types rather than guardedness. These different techniques for are discussed in Section~\ref{sec:related_work}. The individual observations are defined as the fields of the record type.
+Copatterns already exist in other languages, for example in Agda\cite{Norell:thesis}. The implementation of codata and copatterns is similar to what was described earlier. A key difference is how coinductive types are defined. A coinductive type is defined as a record type with a coinductive flag. An example of this can be seen in Figure~\ref{fig:agda_stream}. Notice the implicit sizes. These are not strictly necessary, but are needed if the user wants productivity checking using sized types rather than guardedness. These different techniques for are discussed in Section~\ref{sec:related_work}. The individual observations are defined as the fields of the record type.
 
 \begin{figure}
 \begin{alltt}
@@ -201,11 +202,11 @@ record Stream \{i : Size\} (A : Set) : Set where
     tail : \{j : Size< i\} ->  Stream \{j\} A
 open Stream
 \end{alltt}
-\caption{Sized Stream definition in Agda.}
+\caption{Sized \texttt{Stream} definition in Agda.}
 \label{fig:agda_stream}
 \end{figure}
 
-The copatterns themselves are almost identical to what has been discussed earlier. A simple example not needing sized types to check for productivity is \texttt{repeat} from Figure~\ref{fig:agda_repeat}, as this passes the guardedness check.
+Definitions with copatterns are almost identical to what has been discussed earlier. A simple example where sized types are not necessary for productivity checking is \texttt{repeat} in Figure~\ref{fig:agda_repeat}, as this definition passes the guardedness check.
 
 \begin{figure}
 \begin{alltt}
@@ -217,7 +218,7 @@ tail (repeat a) = repeat a
 \label{fig:agda_repeat}
 \end{figure}
 
-If we want to write something more advanced, we have to involve sized types. Earlier we saw a definition of a stream of natural numbers. An Agda implementation of this is exemplified in Figure~\ref{fig:agda_nats}. Since this does not pass Agdas guardedness check, we have to help the productivity checker with sized types.
+If we want to write something more advanced, we have to involve sized types. Earlier we saw a definition of a stream of natural numbers. An Agda implementation of this is shown in Figure~\ref{fig:agda_nats}. Since \texttt{nats} does not pass the guardedness check, we have to help the productivity checker by using sized types.
 
 \begin{figure}
 \begin{alltt}
@@ -229,6 +230,6 @@ nats : \{i : Size\} -> Stream \{i\} Nat
 head (nats \{i\})     = Z
 tail (nats \{i\}) \{j\} = map \{j\} S (nats \{j\})
 \end{alltt}
-\caption{Nats in Agda.}
+\caption{\texttt{Nats} in Agda.}
 \label{fig:agda_nats}
 \end{figure}
