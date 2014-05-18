@@ -1,10 +1,10 @@
 %!TEX root = ../main.tex
 \section{Copatterns in Idris}
 \label{sec:copatterns_in_idris}
-In this section we will describe the internal changes needed, from a high-level perspective, for adding codata with observations and copatterns to Idris.
+In this section we will describe the internal changes needed, from a high-level perspective, for adding coinductive definitions by obserations and copatterns to Idris.
 
 \subsection{Representation}
-To add definitions with copatterns to Idris, we will need to add two high-level constructs to the language: (1) definitions of codata types in terms of observations, and (2) a way of defining cofunctions using copatterns. We envision that the resulting Idris constructs will make definitions such as those represented in Figure \ref{fig:envisioned_copattern_syntax} possible, for codata and cofunctions, respectively.
+To add definitions with copatterns to Idris, we will need to add two high-level constructs to the language: (1) definitions of codata types in terms of observations, and (2) a way of defining corecursive functions using copatterns. We envision that the resulting Idris constructs will make definitions such as those represented in Figure \ref{fig:envisioned_copattern_syntax} possible.
 
 \begin{figure}
 \begin{alltt}
@@ -12,11 +12,11 @@ codata Stream : Type -> Type where             repeat : a -> Stream a
   head : Stream a -> a                         head (repeat a) = a
   tail : Stream a -> Stream a                  tail (repeat a) = repeat a
 \end{alltt}
-\caption{Examples of the envisioned Idris syntax. On the left, a codata defintion for streams with two observations, on the right a cofunction using this stream definition.}
+\caption{Examples of the envisioned Idris syntax. On the left, a codata defintion for streams with two observations, on the right a corecursive function using this stream definition.}
 \label{fig:envisioned_copattern_syntax}
 \end{figure}
 
-Adding these constructs will require changes to several parts of the Idris compiler. Let us first examine its high-level phases, as shown in Figure \ref{fig:Idris_compiler_phases}.
+Several changes will have to be made to the Idris compiler in order to achieve this. To identify where these changes must be made, let us first examine its high-level phases, shown in Figure \ref{fig:Idris_compiler_phases}.
 
 \begin{figure}
 \begin{center}
@@ -42,20 +42,20 @@ $\mbox{Executable}$
 \item \Idris{} is the high-level language with which the user interacts.
 \item \IdrisM{} % see section 4.5
 is a desugared subset of Idris. It is ``desugared'' in the sense that it does not have \texttt{do}-notation or infix operators, and because all implicit arguments from Idris are explicitly bound.
-\item \TT, The core Type Theory (hence \TT), is a dependently typed lambda calculus extended with pattern matching and inductive families (corresponding to \texttt{data} declarations in Idris). The philosophy is that if everything is compiled to a small core, then we only have to place our trust in the correctness of the core, instead of the entire system. Therefore, we do not wish to change anything in \TT{} unless absolutely necessary.
+\item \TT, The core Type Theory (hence \TT), is a dependently typed lambda calculus extended with pattern matching and inductive families (corresponding to \texttt{data} declarations in Idris). The philosophy behind having a core type theory is that if everything is compiled to a small core, then we only have to place our trust in the correctness of the core, instead of the entire system. Therefore, we do not wish to change anything in \TT{} unless absolutely necessary.
 \end{itemize}
 
 \subsubsection{High-level Changes: \Idris{} and \IdrisM{}}
-In order to transform the source text of our program with copatterns into (the abstract syntax of) Idris, we have to change the parser accordingly. Specifically, we will need it to accept definitions such as those shown Figure \ref{fig:envisioned_copattern_syntax}. To achieve this, the abstract syntax must also be modified to accomodate these changes. In the desugaring phase, we will need to make sure that implicit parameters in any \texttt{codata} definition are explicitly bound, and that the right-hand sides of any cofunction with copatterns are desugared in the same way as the rest of the program.
+In order to transform the source text of our program with copatterns into (the abstract syntax of) Idris, we have to change the parser accordingly. Specifically, we will need it to accept definitions such as those shown Figure \ref{fig:envisioned_copattern_syntax}. To achieve this, the abstract syntax must also be modified to accomodate these changes. In the desugaring phase, we will need to make sure that implicit parameters in any \texttt{codata} definition are explicitly bound, and that the right-hand sides of any corecursive function with copatterns are desugared in the same way as the rest of the program.
 
 \subsubsection{Changes to the Elaborator}
-The elaborator translates high-level Idris programs into \TT{} by using the high-level program to direct a tactic proof that corresponds to the equivalent \TT{} program. We have yet to determine exactly how \texttt{codata} and cofunctions with copatterns should be elaborated. If coinductive types can be represented directly in \TT, then we will have to extend the elaborator to handle programming with observations. If not, we will most likely transform our new constructs into existing Idris constructs as described in the next subsection, and use the already existing elaboration rules for these.
+The elaborator translates high-level Idris programs into \TT{} by using these high-level programs to direct tactic proofs that correspond to equivalent \TT{} programs. We have yet to determine exactly how \texttt{codata} and corecursive functions with copatterns should be elaborated. If coinductive types can be represented directly in \TT, then we will have to extend the elaborator to handle programming with observations. If not, we will most likely transform our new constructs into existing Idris constructs as described in the next subsection, and use the already existing elaboration rules for these.
 
 
 \subsubsection{Changes to the Core Type Theory}
-We argue that it will not be necessary to make any changes to the core type theory. This argument is twofold. First, we argue that it is possible to reduce \texttt{codata} definitions with observations to \TT, and second, we make the same argument for cofunctions defined with copatterns.
+We argue that it will not be necessary to make any changes to the core type theory. This argument is twofold. First, we argue that it is possible to reduce \texttt{codata} definitions with observations to \TT, and second, we make the same argument for corecursive functions defined with copatterns.
 
-(1) For the existing definition of codata in Idris (see Section \ref{sec:background}), delay and force semantics\,\citep[Section 3.5]{Abelson96SICP} are already implemented. Any coinductive argument to a \texttt{codata} constructor is delayed at the time of construction, and implicitly forced during pattern matching. These semantics can also be used for defining coinductive data by observations. Let us formalize this notion by considering the \texttt{Inf} data type given in Figure \ref{fig:Inf_datatype}. In essence, this type enables us to create promises that some data will be delivered at some time in the future using the \texttt{Delay} constructor, while the \texttt{Force} constructor allows us to fulfill such a promise. The name reflects that this data type allows us to model infinite data structures.
+(1) For the existing definition of codata in Idris (see Section \ref{sec:background}), delay and force semantics\,\citep[Section 3.5]{Abelson96SICP} are already implemented to facilitate lazy evaluation. Any coinductive argument to a \texttt{codata} constructor is delayed at the time of construction, and implicitly forced during pattern matching. These semantics can also be used for defining coinductive data by observations. Let us formalize this notion by considering the \texttt{Inf} data type given in Figure \ref{fig:Inf_datatype}. In essence, this type enables us to create promises that some data will be delivered at some time in the future using the \texttt{Delay} constructor, while the \texttt{Force} constructor allows us to fulfill such a promise. The name reflects that this data type allows us to model infinite data structures.
 
 \begin{figure}
 \begin{alltt}
@@ -67,7 +67,7 @@ data Inf : Type -> Type where
 \label{fig:Inf_datatype}
 \end{figure}
 
-Using \texttt{Inf} with the current \texttt{codata} mechanics in Idris, we can arrive at the definition of streams shown in Figure \ref{fig:stream_current_Inf}. In this case, the type of the \texttt{(::)} constructor tells us that any stream consists of some data (the first argument, \texttt{a}) and a promise to deliver the rest of the data later (the second argument, \texttt{Inf (Stream a)}).
+Using \texttt{Inf} with the current \texttt{codata} mechanics in Idris, we can arrive at the definition of streams shown in Figure \ref{fig:stream_current_Inf} (the same as was shown in Figure~\ref{fig:stream_current_Inf_and_natsFrom}). In this case, the type of the \texttt{(::)} constructor tells us that any stream consists of some data (the first argument, \texttt{a}) and a promise to deliver the rest of the data later (the second argument, \texttt{Inf (Stream a)}).
 
 \begin{figure}
 \begin{alltt}
@@ -90,9 +90,9 @@ codata Stream : Type -> Type
 \label{fig:stream_copatterns_Inf}
 \end{figure}
 
-Examining the types of the constructor in Figure \ref{fig:stream_current_Inf} and the observations in Figure \ref{fig:stream_copatterns_Inf}, we observe that there is a close correspondence: the types of the parameters to \texttt{(::)} exactly match the resulting types of the \texttt{head} and \texttt{tail} observations. We argue that it should be possible to model the definition in Figure \ref{fig:stream_copatterns_Inf} using the definition in Figure \ref{fig:stream_current_Inf} by transforming the two observations to one constructor with two parameters. To simulate the act of observing a stream, we can create two auxiliary functions, which can provide us with the head and tail of the stream through pattern matching. In fact, we argue that for any definition by observations, such a transformation is possible. If some coinductive type \texttt{A} is defined by \emph{n} observations, we can transform it into a definition by constructors by creating one constructor for \emph{A} with \emph{n} parameters, and creating \emph{n} auxiliary functions to simulate each observation. Since this means that codata definitions by observations can be modeled using only exising constructs, we expect that no changes in the core type theory will be necessary to enable such definitions.
+Examining the types of the constructor in Figure \ref{fig:stream_current_Inf} and the observations in Figure \ref{fig:stream_copatterns_Inf}, we observe that there is a close correspondence: the types of the parameters to \texttt{(::)} exactly match the resulting types of the \texttt{head} and \texttt{tail} observations. We argue that it should be possible to model the definition in Figure \ref{fig:stream_copatterns_Inf} using the definition in Figure \ref{fig:stream_current_Inf} by transforming the two observations to one constructor with two parameters. To simulate the act of observing a stream, we can create two auxiliary functions, which can provide us with the head and tail of the stream through pattern matching. In fact, we argue that for any definition by observations, such a transformation is possible. If some coinductive type \texttt{A} is defined by \emph{n} observations, we can transform it into a definition by constructors by creating one constructor for \texttt{A} with \emph{n} parameters, and creating \emph{n} auxiliary functions to simulate each observation. Since this means that codata definitions by observations can be modeled using only exising Idris constructs, we expect that no changes in the core type theory will be necessary to enable such definitions.
 
-(2) While receiving promises might be fine, a time must come when such promises must be fulfilled if they are to have any value at all. In the current Idris implementation, this is done by implicitly forcing during pattern matching. Consider the (rather contrived) example of the \texttt{headtail} function in Figure \ref{fig:headtail}, which returns the second element of a stream (as presented in Figure\ref{fig:stream_current_Inf}). Here, we see that if we at an earlier time were promised to get \texttt{xs}, we can use \texttt{Force} to command that now is the time to deliver on that promise. Once the computation is done, we receive the head of \texttt{xs}, and a new promise for the computation of the rest of the stream. Note that \texttt{Force} instigates computation of the promise, and thus cannot simply be omitted.
+(2) While receiving promises might be fine, a time must come when such promises must be fulfilled if they are to have any value at all. In the current Idris implementation, this is done by implicitly forcing during pattern matching. Consider the (rather contrived) example of the \texttt{headtail} function in Figure \ref{fig:headtail}, which returns the second element of a stream (as presented in Figure~\ref{fig:stream_current_Inf}). Here, we see that if we at an earlier time were promised to get \texttt{xs}, we can use \texttt{Force} to command that now is the time to deliver on that promise. Once the computation is done, we receive the head of \texttt{xs}, and a new promise for the computation of the rest of the stream. Note that \texttt{Force} instigates computation of the promise, and thus cannot simply be omitted.
 
 \begin{figure}
 \begin{alltt}
@@ -112,13 +112,13 @@ we can use the \texttt{Force} constructor to force the next step to be computed.
 headtail' : Stream a -> a
 headtail' s = head (Force (tail s))
 \end{alltt}
-\caption{An example showing how promises can be fulfilled when using copatterns.}
+\caption{An example showing how promises can be fulfilled when using copatterns. The \texttt{Stream} definition used here is the one shown in Figure~\ref{fig:stream_copatterns_Inf}.}
 \label{fig:headtail_copatterns}
 \end{figure}
 
 We have already argued that observations can be modeled by auxiliary functions and pattern matching. Therefore, there should exist a straightforward transformation from the the \texttt{headtail'} function to the \texttt{headtail} function. Consequently, programming with observations would not require any changes to the core type theory either. As the idea of \texttt{Inf} already exists for the current implementation of codata in Idris, it should be possible to reuse this idea for implementing codata by observations and copatterns.
 
-\subsection{Productivity Checker}
+\subsection{Adding the Productivity Checker}
 \label{sec:copattern_in_idris_productivity_checker}
 
 %How can we fit the proposed approach to productivity into Idris.
@@ -134,7 +134,7 @@ In order to be able to implement the envisioned algorithm for checking productiv
 \subsubsection{Interaction with the Size-Change Termination Checker}
 For functions on inductive data, Idris employs a termination checker based on the size-change principle\,\citep{LeeJones01SizeChange}. When functions that mix pattern matching on inductive data and copatterns are encountered, identifying when the productivity checker and the size-change termination checker will need to interact becomes interesting.
 
-In our experience, most cofunctions which (1) are defined using copatterns, and (2) rely on the size-change principle for totality, has an equivalent (and often more concise) definition without copatterns. Consider the example in Figure \ref{fig:drop_drop'}. The \texttt{drop'} function is not productive according to our productivity checker, since we cannot be certain that we are allowed to make any observations on \texttt{drop' n (tail s)} on a right-hand side. Nevertheless, we know that according to the size-change principle, we cannot subtract from the \texttt{Nat} argument forever, and thus the function must be deemed productive. The definition of \texttt{drop'} is perfectly valid, but if we examine our use of copatterns, they really do not add any value. A better definition of the same function is \texttt{drop}, which does not use copatterns and is obviously size-change terminating; in fact, we do not even have to check \texttt{drop} for productivity. 
+In our experience, most corecursive functions which (1) are defined using copatterns, and (2) rely on the size-change principle for totality, has an equivalent (and often more concise) definition without copatterns. Consider the example in Figure \ref{fig:drop_drop'}. The \texttt{drop'} function is not productive according to our productivity checker, since we cannot be certain that we are allowed to make any observations on \texttt{drop' n (tail s)} on a right-hand side. Nevertheless, we know that according to the size-change principle, we cannot subtract from the \texttt{Nat} argument forever, and thus the function must be deemed productive. The definition of \texttt{drop'} is perfectly valid, but if we examine our use of copatterns more closely, they really do not add any value. A better definition of the same function is \texttt{drop}, which does not use copatterns and is obviously size-change terminating; in fact, we do not even have to check \texttt{drop} for productivity. 
 
 \begin{figure}
 \begin{alltt}
@@ -166,11 +166,11 @@ tail (prepend (_::xs) s) = prepend xs s
 \label{fig:prepend}
 \end{figure}
 
-The point we want to stress here is one of programming style: In general, functions defined using copatterns should not need to rely on size-change termination for productivity. In such cases, it is most likely possible to rewrite the function without copatterns. 
+The point we want to stress here is one of programming style. In general, functions defined using copatterns should not need to rely on size-change termination for productivity. In such cases, it is most likely possible to rewrite the function without copatterns. 
 
-Suppose we are not aware of this hint, and insist on getting our \texttt{drop'} function from Figure \ref{fig:drop_drop'} past the totality checker. In this case, we have to run the function through the size-change termination checker. There are two ways by which we can enable the termination checker to accept cofunctions with copatterns. The first is to add definitions with copatterns to the set of Idris constructs the termination checker should analyze. Because we have not scrutinized the current implementation of the termination checker, we are not fully convinced that this will be possible, though.
+Suppose we are not aware of this hint, and insist on getting our \texttt{drop'} function from Figure \ref{fig:drop_drop'} past the totality checker. In this case, we have to run the function through the size-change termination checker. There are two ways by which we can enable the termination checker to accept corecursive functions with copatterns. The first is to add definitions with copatterns to the set of Idris constructs the termination checker should analyze. Because we have not scrutinized the current implementation of the termination checker, we are not fully convinced that this will be possible, though.
 
-Another possibility is to transform cofunctions with copatterns into definitions without copatterns. As we have argued previously, there exists a transformation from any \texttt{codata} type defined by observations (as in Figure \ref{fig:stream_copatterns_Inf}) to one defined by constructors (as in Figure \ref{fig:stream_current_Inf}). Similarly, all cofunctions defined with copatterns can be defined by pattern matching instead. For instance, \texttt{drop'} can be transformed as shown in Figure \ref{fig:drop'_dropT}. Here, \texttt{dropT} is only defined using data constructors and function calls, and is easily discovered to be size-change terminating on its first argument. 
+Another possibility is to transform such functions into definitions without copatterns. As we have argued previously, there exists a transformation from any \texttt{codata} type defined by observations (as in Figure \ref{fig:stream_copatterns_Inf}) to one defined by constructors (as in Figure \ref{fig:stream_current_Inf}). Similarly, all cofunctions defined with copatterns can be defined by pattern matching instead. For instance, \texttt{drop'} can be transformed as shown in Figure \ref{fig:drop'_dropT}. Here, \texttt{dropT} is only defined using data constructors and function calls, and is easily discovered to be size-change terminating on its first argument. 
 
 \begin{figure}
 \begin{alltt}
