@@ -1,0 +1,15 @@
+%!TEX root = ../main.tex
+\section{Future Work}
+\label{sec:future_work}
+The above sections give rise to several directions for future work. Specifically, we will have to:
+\begin{itemize}
+\item Formalize the productivity algorithm presented in Section~\ref{sec:productivity}.
+\item Show the correctness of the productivity algorithm.
+\item Investigate further the internals of the Idris implementation.
+\item Find out how codata definitions by observations and corecursive functions with copatterns can be elaborated to \TT.
+\end{itemize}
+Although the productivity algorithm was described in natural language in Section~\ref{sec:productivity}, a more operational formalization of the algorithm is needed if we are to implement it. A possible step on the way to implementing the algorithm in Idris would be to extend \textit{findus} with dependent types in order to get a realistic testing environment, and then incorporate the productivity algorithm for copatterns into this system. Then, once the algorithm works in this setting, it should be easier to realize in Idris.
+
+To ensure that our productivity algorithm is usable, we will need to prove its correctness. This could possibly be done by reducing the system of time measurement to a subset of sized types.
+
+Since the constructs described in Section~\ref{sec:copatterns_in_idris} must be added to Idris, we will need to delve deeper into the Idris implementation. In particular, we need to investigate how to elaborate these constructs to the core type theory. Additionally, the productivity algorithm must be fit into the system alongside the size-change termination checker.
