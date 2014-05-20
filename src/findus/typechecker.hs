@@ -228,42 +228,6 @@ check vEnv tEnv (EUnfold t) = do
                           t <- typeVarLookup s tEnv
                           check vEnv tEnv (EUnfold t)
     t         -> throwError $ Unexpected t "inductive type"
-check vEnv tEnv (EData s t) = 
-  case t of
-    TRecInd s' nt | s == s' -> case nt of
-                                 TVari fs -> do
-                                   lbls <- assocDups fs
-                                   return $ TEData (globTypeSubst tEnv (TRecInd s (TVari lbls))) s
-                  | otherwise -> throwError $ Err "Data label not matching name of inductive type"
-    TGlobTypeVar s       -> do
-                          t <- typeVarLookup s tEnv
-                          check vEnv tEnv (EData s t)
-    t                    -> throwError $ Unexpected t "inductive type"
-check vEnv tEnv (ECodata s t) =
-  case t of
-    TRecCoind s' es | s == s' -> do
-                               lbls <- assocDups es
-                               return $ TECodata (globTypeSubst tEnv (TRecCoind s lbls)) s
-                    | otherwise -> throwError $ Err "Codata label not matching name of coinductive type"
-    TGlobTypeVar s       -> do
-                          t <- typeVarLookup s tEnv
-                          check vEnv tEnv (ECodata s t)
-    t                    -> throwError $ Unexpected t "coinductive type"
-check vEnv tEnv (EGlobLet s t ps e) = do
-  te <- check (maybeAppend ps vEnv) tEnv e
-  case ps of
-    Just ps ->
-      case t of
-        TArr a r -> 
-          if not (a == (map snd ps)) then throwError $ ArgumentMismatch a ps s
-          else case typeEquality r (getTypeAnno te) tEnv of
-            Right  _ -> return $ TEGlobLet (globTypeSubst tEnv (TArr a r)) s (Just ps) te
-            Left err -> throwError err
-        t -> throwError $ Unexpected t "arrow type"
-    Nothing ->
-      case typeEquality (getTypeAnno te) t tEnv of
-        Right _  -> return $ TEGlobLet t s ps te
-        Left err -> throwError err
 check _ _ e = throwError $ NotValidExpression e
 
 listMapFst :: (a -> c) -> [(a, b)] -> [(c, b)]
@@ -318,20 +282,20 @@ globTypeInExprSubst env (ECase e es) = ECase (globTypeInExprSubst env e) (listMa
 globTypeInExprSubst env (ETag s es t) = ETag s (map (globTypeInExprSubst env) es) (globTypeSubst env t)
 globTypeInExprSubst env (EFold t) = EFold (globTypeSubst env t)
 globTypeInExprSubst env (EUnfold t) = EUnfold (globTypeSubst env t)
-globTypeInExprSubst env (ERoot es) = ERoot (map (globTypeInExprSubst env) es)
-globTypeInExprSubst env (EData s t) = EData s (globTypeSubst env t)
-globTypeInExprSubst env (EGlobLet s t ps e) = EGlobLet s (globTypeSubst env t) (listMapSnd (globTypeSubst env) <$> ps) (globTypeInExprSubst env e)
+--globTypeInExprSubst env (ERoot es) = ERoot (map (globTypeInExprSubst env) es)
+--globTypeInExprSubst env (EData s t) = EData s (globTypeSubst env t)
+--globTypeInExprSubst env (EGlobLet s t ps e) = EGlobLet s (globTypeSubst env t) (listMapSnd (globTypeSubst env) <$> ps) (globTypeInExprSubst env e)
 globTypeInExprSubst _ a = a
  
-buildRootEnv :: [Expr] -> Either TypeError (Env, Env)
+buildRootEnv :: [Defi] -> Either TypeError (Env, Env)
 buildRootEnv []       = Right ([], [])
 buildRootEnv (x : xs) = case buildRootEnv xs of
                           Right l -> 
                             case x of
-                              EData    s t   -> return $ ((listMapSnd reduceArrows (typeFunctions t)) ++ (fst l), (s, t) : (snd l))
-                              ECodata  s t   -> return $ ((typeFunctions t) ++ (fst l), (s, t) : (snd l))
-                              EGlobLet s t _ _ -> return $ ((s, t) : (fst l), snd l)
-                              e             -> throwError $ NotValidRootExpr e
+                              DData    s t   -> return $ ((listMapSnd reduceArrows (typeFunctions t)) ++ (fst l), (s, t) : (snd l))
+                              DCodata  s t   -> return $ ((typeFunctions t) ++ (fst l), (s, t) : (snd l))
+                              DGlobLet s t _ _ -> return $ ((s, t) : (fst l), snd l)
+                             -- e             -> throwError $ NotValidRootExpr e
                           Left  e -> throwError e
 
 typeFunctions :: Type -> [(Sym, Type)]
@@ -352,12 +316,53 @@ reduceArrows (TRecCoind s es) = TRecCoind s (listMapSnd reduceArrows es)
 reduceArrows a = a
 
 checkRoot :: Expr -> Either TypeError [TypedExpr]
-checkRoot (ERoot es) = case buildRootEnv es of
+checkRoot (ERoot ds) = case buildRootEnv ds of
                          Right l -> do
                           vEnv <- assocDups $ fst l
                           tEnv <- assocDups $ snd l
-                          let ts = map (check vEnv tEnv) es in 
+                          let ts = map (checkDef vEnv tEnv) ds in 
                             case eitherUnzip $ ts of
                               Right ts -> return ts
                               Left err -> throwError err
                          Left err -> throwError err
+
+
+
+checkDef :: Env -> Env -> Defi -> Either TypeError TypedExpr
+checkDef vEnv tEnv (DData s t) = 
+  case t of
+    TRecInd s' nt | s == s' -> case nt of
+                                 TVari fs -> do
+                                   lbls <- assocDups fs
+                                   return $ TEData (globTypeSubst tEnv (TRecInd s (TVari lbls))) s
+                  | otherwise -> throwError $ Err "Data label not matching name of inductive type"
+    TGlobTypeVar s       -> do
+                          t <- typeVarLookup s tEnv
+                          checkDef vEnv tEnv (DData s t)
+    t                    -> throwError $ Unexpected t "inductive type"
+checkDef vEnv tEnv (DCodata s t) =
+  case t of
+    TRecCoind s' es | s == s' -> do
+                               lbls <- assocDups es
+                               return $ TECodata (globTypeSubst tEnv (TRecCoind s lbls)) s
+                    | otherwise -> throwError $ Err "Codata label not matching name of coinductive type"
+    TGlobTypeVar s       -> do
+                          t <- typeVarLookup s tEnv
+                          checkDef vEnv tEnv (DCodata s t)
+    t                    -> throwError $ Unexpected t "coinductive type"
+checkDef vEnv tEnv (DGlobLet s t ps e) = do
+  te <- check (maybeAppend ps vEnv) tEnv e
+  case ps of
+    Just ps ->
+      case t of
+        TArr a r -> 
+          if not (a == (map snd ps)) then throwError $ ArgumentMismatch a ps s
+          else case typeEquality r (getTypeAnno te) tEnv of
+            Right  _ -> return $ TEGlobLet (globTypeSubst tEnv (TArr a r)) s (Just ps) te
+            Left err -> throwError err
+        t -> throwError $ Unexpected t "arrow type"
+    Nothing ->
+      case typeEquality (getTypeAnno te) t tEnv of
+        Right _  -> return $ TEGlobLet t s ps te
+        Left err -> throwError err
+        

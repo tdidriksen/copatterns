@@ -7,7 +7,7 @@ Before delving into a description of our proposal for a productivity checking al
 \subsection{Lazy Evaluation: The Haskell Approach}
 It may be compelling to think that we can simply model coinductive data in the same way as it is done in Haskell, by evaluating all expressions lazily. Then any productivity algorithm would work for Haskell as well, making the result more generally applicable. The lazy evaluation approach, however, is insufficient in several aspects.
 
-First and foremost, if we insist on making no distinction between inductive and coinductive data in our type system (Haskell makes no distinction), subject reduction is lost in a dependently typed system\,\citep{Abel13Copatterns}. The problem lies in the fact that coinductive data is modeled as the \emph{construction} of infinite trees, making dependent pattern matching possible on codata. Consider the type \texttt{U} in Figure~\ref{fig:subject_reduction_problem}, with inhabitant \texttt{u}. Even though it should not hold, the equality \texttt{u = C u} in the type of \texttt{eqU} holds when we allow dependent pattern matching on \texttt{x} in \texttt{eq}, since it allows the type system to reduce \texttt{x} to \texttt{C y}. In this case the type of \texttt{refl} in \texttt{eq} becomes \texttt{C y = force (C y)}, which should hold. However, if we replace the right-hand side of \texttt{eqU} with \texttt{refl}, a type error occurs since \texttt{u} is not equal to \texttt{C u}. Consequently, the type of \texttt{eq} changes when we do dependent pattern matching on its input, \texttt{x}, which means that subject reduction is lost. This problem is explained in greater detail by Abel et al.\,\citep{Abel13Copatterns}, and is also discussed in a correspondence initiated by Danielsson on the Agda mailing list\,\citep{OuryCounterexample}. Naturally, we want to preserve subject reduction in the Idris type system. When we are able to distinguish between inductive and coinductive data, one solution to this problem is to treat coinductive data lazily, making examples like the one in Figure~\ref{fig:subject_reduction_problem} ill-typed. This approach, which is also implemented in Idris, is discussed in Section~\ref{sec:copatterns_in_idris}.
+First and foremost, if we insist on making no distinction between inductive and coinductive data in our type system (Haskell makes no distinction), subject reduction is lost in a dependently typed system\,\citep{Abel13Copatterns}. The problem lies in the fact that coinductive data is modeled as the \emph{construction} of infinite trees, making dependent pattern matching possible on codata. Consider the type \texttt{U} in Figure~\ref{fig:subject_reduction_problem}, with inhabitant \texttt{u}. Even though it should not hold, the equality \texttt{u = C u} in the type of \texttt{eqU} holds when we allow dependent pattern matching on \texttt{x} in \texttt{eq}, since it allows the type system to reduce \texttt{x} to \texttt{C y}. In this case the type of \texttt{refl} in \texttt{eq} becomes \texttt{C y = force (C y)}, which should hold. However, if we replace the right-hand side of \texttt{eqU} with \texttt{refl}, a type error occurs since \texttt{u} is not equal to \texttt{C u}. Consequently, the type of \texttt{eq} changes when we do dependent pattern matching on its input, \texttt{x}, which means that subject reduction is lost. This problem is explained in greater detail by Abel et al.\,\citep{Abel13Copatterns}, and is also discussed in a correspondence initiated by Danielsson on the Agda mailing list\,\citep{OuryCounterexample}. Naturally, we want to preserve subject reduction in the Idris type system. When we are able to distinguish between inductive and coinductive data, one solution to this problem is to not allow dependent pattern matching on coinductive data. This approach, which is also implemented in Idris, is discussed in Section~\ref{sec:copatterns_in_idris}.
 
 \begin{figure}
 \begin{alltt}
@@ -35,16 +35,16 @@ eqU = eq u
 \label{fig:subject_reduction_problem}
 \end{figure}
 
-Another argument against the Haskell approach is that the core type theory underlying Idris is believed to have the Church-Rosser property\,\citep{BradyIdrisImpl13}, meaning that distinct reduction strategies lead to the same normal form. Furthermore, the total part of Idris is strongly normalizing, such that it enjoys the \emph{strong} Church-Rosser property\,\citep{Turner04totalfunctional}. This means that not only will every reduction strategy leading to a normal form lead to the same normal form, but \emph{any} reduction strategy must lead to a normal form. In Haskell, many definitions will lead to a normal form under lazy evaluation, while eager evaluation would lead to infinite recursion. Therefore, exploiting lazy evaluation in the total part of Idris would mean that it would no longer have the strong Church-Rosser property.
+Another argument against the Haskell approach is that the core type theory underlying Idris is intended to have the Church-Rosser property\,\citep{BradyIdrisImpl13}, meaning that distinct reduction strategies lead to the same normal form. Furthermore, the total part of Idris is intended to be strongly normalizing, such that it enjoys the \emph{strong} Church-Rosser property\,\citep{Turner04totalfunctional}. This means that not only will every reduction strategy leading to a normal form lead to the same normal form, but \emph{any} reduction strategy must lead to a normal form. In Haskell, many definitions will lead to a normal form under lazy evaluation, while eager evaluation would lead to infinite recursion. Therefore, exploiting lazy evaluation in the total part of Idris would mean that it would no longer have the strong Church-Rosser property.
 
 \subsection{Productivity Checking with Sized Types}
 As shown by Abel and Pientka\,\citep{Abel13Wellfounded}, verifying the productivity of coinductive definitions with copatterns is indeed possible using sized types. Thus, the main argument against using sized types is one of usability, from the point of view of the Idris user. Thibodeau\,\citep{Thibodeau11} emphasizes that size annotations generally make the code harder to read and seem unnecessary (see Section~\ref{sec:related_work}). In our own experience, size annotations place quite a burden of bookkeeping upon the user, as they have a tendency to become a tool that is used to satisfy the productivity checker, instead of leading to clearer type specifications. Because totality is optional in Idris for definitions that to not appear in types (as opposed to in Agda, for instance), this means that in a practical programming setting, some users would most likely be inclined to switch off productivity checking for coinductive definitions, or refrain from using them entirely.
 
-This argument is only valid as long as we have no way to fully reconstruct all size annotations. Once we do (if ever), the burden of sized types can be placed entirely upon the compiler. At such point, totality checking with sized types would seem like a practical approach.
+This argument is only valid as long as we have no way to fully reconstruct all size annotations. Once we do (if ever), the burden of sized types can be placed entirely upon the compiler. At such point, totality checking with sized types would become a practical approach.
 
 \subsection{Guarded Corecursion}
 \label{sec:guarded_cored}
-In its original form presented by Coquand\,\citep{Coquand94} and Gim\'{e}nez\,\citep{Gimenez95}, the guardedness condition is generally too restrictive, as discussed in Section~\ref{sec:related_work}. The work done on the ESFP system by Telford and Turner\,\citep{Telford97ensuringstreams,Telford98ensuringthe} makes the guardedness criterion more generally applicable, even though some problems still remain, such as handling indirect application to corecursive functions. An example of this problem is the \texttt{g} function in Figure~\ref{fig:TelfordTurnerProblems}, the guardedness of which cannot be determined due to the indirect call to another function. In this case, this other function is the identity function, but the point is that the result of \texttt{(fst~funPair)} could have been any function. The function \texttt{f} is not considered guarded within their system because forward references may not be made to the rest of the process, i.e. the head of \texttt{f} cannot refer to the tail of \texttt{f}.
+In its original form presented by Coquand\,\citep{Coquand94} and Gim\'{e}nez\,\citep{Gimenez95}, the guardedness condition is generally too restrictive, as discussed in Section~\ref{sec:related_work}. The work done on the ESFP system by Telford and Turner\,\citep{Telford97ensuringstreams,Telford98ensuringthe} makes the guardedness criterion more generally applicable, even though some problems still remain, such as handling indirect application of corecursive functions. An example of this problem is the \texttt{g} function in Figure~\ref{fig:TelfordTurnerProblems}, the guardedness of which cannot be determined due to the indirect call to another function. In this case, this other function is the identity function, but the point is that the result of \texttt{(fst~funPair)} could have been any function. The function \texttt{f} is not considered guarded within their system because forward references may not be made to the rest of the process, i.e. the head of \texttt{f} cannot refer to the tail of \texttt{f}.
 
 \begin{figure}
 \begin{alltt}
@@ -65,11 +65,11 @@ What we ultimately seek is a productivity checking algorithm for definitions wit
 % Why not sized types? 
 % Why not the haskell way?
 \subsection{Proposed Solution}
-The basic idea of our proposal is \textit{time measurement}. We wish to always know how many observations we can safely make on a given recursive reference. To do this we use time as an analogy. When defining what happens at a given time we can only refer to what has happened earlier. Each observation is defined by what happens one time unit later. We will exemplify this using days. To know what happens on any given day we can only refer to what has happened earlier than that day. If we translate the days to numerical numbers, where later days are given higher numbers, we can express this idea of only being able to reference back in time with an inequality.
+The basic idea of our proposal is \textit{time measurement}. We wish to always know how many observations we can safely make on a given recursive reference. To do this we use time as an analogy. When defining what happens at a given time we can only refer to what has happened earlier. Each observation is defined by what happens one time unit later. We will use days as an analogy. To know what happens on any given day we can only refer to what has happened earlier than that day. If we translate the days to numbers, where later days are given higher numbers, we can express this idea of only being able to reference back in time with an inequality.
 
-If a given function \texttt{f} ``is defined'' on day $\tau$, then the first observation on \texttt{f} is defined on day $\tau+1$, the second observation on day $\tau+2$ etc. If we wish to define what is defined on any given day $\tau+n$ we can only refer to observations made earlier, on an earlier day $\phi$. We know that $\phi$ is an earlier day if $\tau+n\, \textgreater \,\phi$ holds. Any definition that comply with this is said to be productive.
+If a given function \texttt{f} ``is defined'' on day $\tau$, then the first observation on \texttt{f} is defined on day $\tau+1$, the second observation on day $\tau+2$ etc. If we wish to define what is defined on any given day $\tau+n$ we can only refer to observations made earlier, on an earlier day $\phi$. We know that $\phi$ is an earlier day if $\tau+n\, \textgreater \,\phi$ holds. Any definition that comply with this is said to be time consistent, as there are no references to something that has not yet happened. If we think of observations as places in time, if we cannot refer to something that has not yet happened, we cannot refer to an observation that does not exist. Therefore, any observation that is time consistent is also safe. As such we can see time consistency as equivalent to productivity.
 
-In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these time measures. Since \texttt{zeros} is the starting point we give that a base measure $\tau$. Both the \texttt{head} and the \texttt{tail} observations are defined one day later than \texttt{zeros}, they both get time measure $\tau+1$. To determine if \texttt{zeros} is productive we must examine the right hand sides of the observations. The \texttt{head} observation is simple as there are no corecursive calls. Therefore it gets the time measure $stable$ \todo{possible Krishnaswami ref} as we assume that \texttt{Z} is always known. We use this measure for any reference that is not corecursive. In terms of an numeric value $stable$ can be thought of as negative infinity. In the \texttt{tail} observation we have a corecursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time of \texttt{zeros}. To determine the productivity we must ensure that observations are only defined by what has already happened. Looking at this as an inequality we can see that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,stable$ and in the \texttt{tail} $\tau+1\,\textgreater\,\tau$. Note that all these annotations can be inferred.
+In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these time measures. Since \texttt{zeros} is the starting point we give that a base measure $\tau$. Both the \texttt{head} and the \texttt{tail} observations are defined one day later than \texttt{zeros}, they both get time measure $\tau+1$. To determine if \texttt{zeros} is productive we must examine the right hand sides of the observations. The \texttt{head} observation is simple as there are no corecursive calls. Therefore it gets the time measure $stable$ as we assume that \texttt{Z} is always known. We use this measure for any reference that is not corecursive. In terms of an numeric value $stable$ can be thought of as negative infinity. In the \texttt{tail} observation we have a corecursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time of \texttt{zeros}. To determine the productivity we must ensure that observations are only defined by what has already happened. Looking at this as an inequality we can see that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,stable$ and in the \texttt{tail} $\tau+1\,\textgreater\,\tau$. Note that all these annotations can be inferred.
 
 \begin{figure}
 \begin{tabular}{l c}
@@ -133,7 +133,7 @@ tail$_{\tau+1}$ nats$_{\tau}$ = (map S nats)$_{?}$
 \label{fig:nats_productivity}
 \end{figure}
 
-When analysing \texttt{map} we introduce a new time measure for each coinductive input the function takes. This measure is not used for checking the productivity \texttt{map} but is used for callers of \texttt{map} to see how many observations \texttt{map} performs on a given input. This means that in addition to checking the productivity of \texttt{map} we also create a \textit{specification} for \texttt{map} that other functions can then use, to determine whether the call to \texttt{map} would be productive or not.
+When analysing \texttt{map} we introduce a new time measure for each coinductive input the function takes. This measure is not used for checking the productivity \texttt{map} but is used for callers of \texttt{map} to see how many observations \texttt{map} performs on a given input. This means that in addition to checking the productivity of \texttt{map} we also create a \textit{specification} for \texttt{map} that other functions can then use, to determine whether the call to \texttt{map} would be productive or not. A specification can be saved in an internal hidden type for later use by the productivity checker.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -153,7 +153,7 @@ This gives us $\upsilon+1-1$ or just $\upsilon$, which means that the specificat
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 nats$_{\tau}$ : Stream Nat
 head$_{\tau+1}$ nats$_{\tau}$ = Z$_{stable}$
-tail$_{\tau+1}$ nats$_{\tau}$ = (map S nats$_{\tau})$
+tail$_{\tau+1}$ nats$_{\tau}$ = (map S nats$_{\tau}$)$_{\tau}$
 \end{Verbatim}
 \caption{A \texttt{Stream} of all the natural numbers with full time annotations.}
 \label{fig:natsComplete}
@@ -176,12 +176,12 @@ tail$_{\upsilon+1}$ g$_{\upsilon}$ = tail$_{\upsilon_{f}+1}$ f$_{\upsilon_{f}}$
 \label{fig:mutRec1}
 \end{figure}
 
-Creating these specifications again is simple, and inferable. To find $\upsilon_{f}$ we look at the references to \texttt{g} in \texttt{f}. We see that there is one observation on the left hand side and none on the right hand side. For the same reason as with \texttt{map} we subtract one for the left hand observations and add one for the right hand side observations. This means that $\upsilon_{f} = \upsilon - 1$. Using the same approach for finding $\tau_{g}$ we get that $\tau_{g} = \tau$. We can now substitute these values into the inequalities from earlier and get that $\tau+1\,\textgreater\,\tau$ and $\upsilon+1\,\textgreater\,\upsilon - 1$. Therefore \texttt{f} and \texttt{g} are productive.
+Creating these specifications again is simple, and inferrable. To find $\upsilon_{f}$ we look at the references to \texttt{g} in \texttt{f}. We see that there is one observation on the left hand side and none on the right hand side. For the same reason as with \texttt{map} we subtract one for the left hand observations and add one for the right hand side observations. This means that $\upsilon_{f} = \upsilon - 1$. Using the same approach for finding $\tau_{g}$ we get that $\tau_{g} = \tau$. We can now substitute these values into the inequalities from earlier and get that $\tau+1\,\textgreater\,\tau$ and $\upsilon+1\,\textgreater\,\upsilon - 1$. Therefore \texttt{f} and \texttt{g} are productive.
 
 \subsubsection{Known Limitations}
 We have discovered a few limitations to this approach. In this section we will present them and discuss possible solutions.
 
-Looking at the problems discussed in Section~\ref{sec:guarded_cored} our approach does not solve these directly. The first is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $\tau+1\,\textgreater\,\tau+2$. It is, however, easily solvable due to our use of copatterns. Since \texttt{head tail h} is directly defined we can say that \texttt{head h} is productive if \texttt{head tail h} is productive.
+Our approach does not solve the problems discussed in Section~\ref{sec:guarded_cored} directly. The first is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $\tau+1\,\textgreater\,\tau+2$. It is, however, easily solvable due to our use of copatterns. Since \texttt{head tail h} is directly defined we can say that \texttt{head h} is productive if \texttt{head tail h} is productive.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -190,7 +190,7 @@ head$_{\tau+1}$ h$_{\tau}$         = head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$
 head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = tail$_{\tau+1}$ h$_{\tau}$
 \end{Verbatim}
-\caption{An example ...}
+\caption{An example of a productive definition our productivity checker would discard.}
 \label{fig:forwardRef}
 \end{figure}
 
@@ -205,6 +205,68 @@ tail$_{\tau+1}$ (i)$_{\tau}$ = (fst funPair) i$_{?}$
 funPair : (Stream a, Stream a)
 funPair = (id, id)
 \end{Verbatim}
-\caption{}
+\caption{An example of a productive definition our productivity checker would discard.}
 \label{fig:funList}
 \end{figure}
+
+\subsubsection{Reflection on our Approach}
+We are convinced that this time consistency is determinable by a machine. All analysis is syntactical which means that the user of the language will not have to annotate anything. To support this we have made a natural language description of a possible algorithm. We consider a specification a function taking a time measure and producing a new time measure reflecting the changes noted by the specification. Also note that destructors also can be considered coinductive functions with a specification saying that it increases the time by one.
+
+For ease of reading we have defined the following function which will be refered to several times. This function will be refered to as \textit{calculate}
+
+\begin{centerline}
+\textit{Given a coinductive 	}
+\end{centerline}
+
+\paragraph{f: Coinductive Definition}
+\begin{enumerate}
+\item Create a time measure $\tau$ for the definition
+\item For each observation in the definition do:
+\begin{enumerate}
+\item Count the number of left-hand destructors and add this number to $\tau$. This is the time of this observation. 
+\item Find all corecursive reference on the right-hand side. Calculate the time measure of all these references using \textit{calculate}.
+\item Find all non-corecursive reference on the right-hand side. Assign them the time measure $stable$.
+\item The time of the observation (from (a)) must be greater than the greatest time measure on the right-hand side.
+\end{enumerate}
+\item If 2.(d) holds for all observations the definition is productive.
+\end{enumerate}
+
+\paragraph{g: Coinductive Functions}
+\begin{enumerate}
+\item Check the productivity of function itself using $f$, ignoring the coinductive parameters.
+\item For each input parameter create a time measure.
+\item For each observation in the definition do:
+\begin{enumerate}
+\item Count the number of left-hand destructors. This is the time offset.
+\item For each reference to the coinductive input do:
+\begin{enumerate}
+\item Calculate the time measure of the reference using \textit{calculate}.
+\item Subtract the offset from these the result.
+\end{enumerate}
+\end{enumerate}
+\item For each input find the greatest time measure in all observation.
+\item These greatest measures is the specification.
+\end{enumerate}
+\paragraph{h: Mutually Corecursive Definition}
+\begin{enumerate}
+\item For each mutually corecursive definition do:
+\begin{enumerate}
+\item Check the productivity of the function itself using $f$, ignoring the mutually corecursive references
+\item Create a time measure for every definition with which it is mutually corecursive.
+\item For each observation with a reference to a mutual definition do:
+\begin{enumerate}
+\item Count the number of left-hand destructors. This is the time offset.
+\item Calculate the time measure of the references using $calculate$.
+\item Subtract the offset from these references.
+\end{enumerate}
+\item For each definition this definitiion with which it is mutually corecursive, find the greatest time measure. These are the time measures of other definitions in this definition.
+\item For each observation with a reference to a mutual definition do:
+\begin{enumerate}
+\item Count the number of left-hand side destructors. This is the time of this observation.
+\item Look up the time measure for this definition in that definition.
+\item Calculate the time measure of this reference using $calculate$ with the time measure from above as input.
+\item The time of the observation must be greater than the greatest time measure given on the right-hand side.
+\end{enumerate}
+\item If the 1.e.iv. holds for all observation this definition is productive.
+\end{enumerate}
+\end{enumerate}

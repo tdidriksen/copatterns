@@ -31,6 +31,11 @@ let fib : natStream =
               head -> S (Z) ;
               tail -> zipStreamWithPlus (fib, tail (fib))
 
+let zeros : natStream =
+  observe natStream as
+    head -> Z ;
+    tail -> zeros
+
 
 -- Mutual recursion test
 let stupid1 (n : nat) : (nat -> nat) = stupid2 (n)

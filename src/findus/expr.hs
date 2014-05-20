@@ -14,10 +14,13 @@ data Expr
   | ETag Sym [Expr] Type 
   | EFold Type
   | EUnfold Type
-  | ERoot [Expr]
-  | EData Sym Type
-  | ECodata Sym Type
-  | EGlobLet Sym Type (Maybe Params) Expr
+  | ERoot [Defi]
+  deriving (Eq, Show)
+
+data Defi
+  = DData Sym Type
+  | DCodata Sym Type
+  | DGlobLet Sym Type (Maybe Params) Expr
   deriving (Eq, Show)
 
 data Type

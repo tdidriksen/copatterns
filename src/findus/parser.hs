@@ -23,7 +23,7 @@ letin = do
   e2 <- expr
   return $ ELet x t ps e1 e2
 
-letglob :: Parser Expr
+letglob :: Parser Defi
 letglob = do
   reserved "let"
   x <- identifier
@@ -32,7 +32,7 @@ letglob = do
   t <- ty
   reservedOp "="
   e <- expr
-  return $ EGlobLet x t ps e
+  return $ DGlobLet x t ps e
 
   {-
   case x : nat of
@@ -87,13 +87,13 @@ data nat =
        | S nat 
 -}
 
-inductivedata :: Parser Expr
+inductivedata :: Parser Defi
 inductivedata = do
   reserved "data"
   x <- identifier
   reservedOp "="
   cs <- braces $ sepBy1 (dataconstructor x) (spaces >> char '|' >> spaces)
-  return $ EData x (TRecInd x (TVari cs))
+  return $ DData x (TRecInd x (TVari cs))
 
 dataconstructor :: String -> Parser (Sym, [Type])
 dataconstructor n = do
@@ -107,13 +107,13 @@ codata natStream =
   | tail natStream
 -}
 
-codata :: Parser Expr
+codata :: Parser Defi
 codata = do
   reserved "codata"
   x <- identifier
   reservedOp "="
   ds <- braces $ sepBy1 (codatadestructor x) (spaces >> char '|' >> spaces)
-  return $ ECodata x (TRecCoind x ds)
+  return $ DCodata x (TRecCoind x ds)
 
 codatadestructor :: String -> Parser (Sym, Type)
 codatadestructor n = do
@@ -176,17 +176,19 @@ expr = try funapp
 
 exprtail :: Parser Expr
 exprtail = (try letin)
-   <|> letglob
    <|> inductivecase
    <|> observe
-   <|> inductivedata
-   <|> codata
    <|> unitexpr
    <|> try var
 
+defi :: Parser Defi
+defi = inductivedata
+   <|> codata
+   <|> letglob
+
 prog :: Parser Expr
 prog = do
-  es <- sepBy expr spaces
+  es <- sepBy defi spaces
   eof
   return $ ERoot es
 

@@ -1,6 +1,6 @@
 %!TEX root = ../main.tex
 \section{Implementing Copatterns}
-\label{sec:implementing-copatterns}
+\label{sec:implementing-copatterns}\todo{Add concrete syntax.}
 %Description of our language.
 %Explains the interesting details of implementing copatterns.
 To explore the implementation of copatterns we have made a small toy language called \textit{findus} implemented in Haskell. It is a functional programming language with first-order functions and simple first-order types. It has the following features:
@@ -13,18 +13,18 @@ To explore the implementation of copatterns we have made a small toy language ca
 \item Copatterns
 \end{itemize}
 
-Both inductive and coinductive types are implemented as iso-recursive types\,\cite[p. 275]{Pierce:2002:TPL:509043}. This means that their implementations are very similar. Inductive types (\texttt{TRecInd} in Figure~\ref{fig:types}) are defined by the name of the type and then a variant type (\texttt{TVari}). The variant type consists of a list which defines the constructors, where the string part is the name of the constructors and the list of types are the types of the constructor parameters. The coinductive type (\texttt{TRecCoind}) is defined by its name and a list of observations that is similar to the variant type definition, except that there is only one type per observation. This makes sense, as the coinductive argument to an observation (the object we observe) can be inferred, so only its return type is specified. A possible extension could be to allow observations to take parameters, but we decided against this since the focus of this project is copatterns, and matching on these parameters would just be standard pattern matching. Defining coinductive data types is done with the \texttt{ECodata} expression in Figure~\ref{fig:expr}, which is defined by the name of the type and the coinductive type that defines it.
+Inductive and coinductive types are implemented as iso-recursive types\,\cite[Section~20.2]{Pierce:2002:TPL:509043}, or $\mu$X.T and $\nu$X.T respectively. This means that their implementations are very similar. Inductive types (\texttt{TRecInd} in Figure~\ref{fig:types}) are defined by the name of the type and then a variant type (\texttt{TVari}). The variant type consists of a list which defines the constructors, where the string part is the name of the constructors and the list of types are the types of the constructor parameters. The coinductive type (\texttt{TRecCoind}) is defined by its name and a list of observations that is similar to the variant type definition, except that there is only one type per observation. The coinductive argument to an observation (the object we observe) can be inferred, so only its return type is specified. A possible extension could be to allow observations to take parameters, but we decided against this since the focus of this project is copatterns, and matching on these parameters would just be standard pattern matching. Defining coinductive data types is done with the \texttt{DCodata} definition in Figure~\ref{fig:expr}, which is defined by the name of the type and the coinductive type that defines it.
 
 \begin{figure}
-\begin{alltt}
+\begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 data Type =
   \vdots
-  | TVari [(String, [Type])]          // Variant Type
-  | TRecInd String Type               // Inductive Type
-  | TRecCoind String [(String, Type)] // Coinductive Type
+  | TVari [(String, [Type])]          // Sum of Products (Variant Type)
+  | TRecInd String Type               // $\mu$X.T
+  | TRecCoind String [(String, Type)] // $\nu$X.T
   | TRecTypeVar String                // Recursive type variable
   | TGlobTypeVar String               // Global type variable
-\end{alltt}
+\end{Verbatim}
 \caption{Part of the \texttt{Type} type in findus}
 \label{fig:types}
 \end{figure}
@@ -38,16 +38,20 @@ type Params = [(String, Type)]
 data Expr =
   \vdots
   | EVar String                              // Variable
-  | EData String Type                        // Data
-  | ECodata String Type                      // Codata
   | EObserve Type [(String, Expr)]           // Observe
-  | EGlobLet String Type (Maybe Params) Expr // Global Let
+  \vdots
+
+data Defi =
+  \vdots
+  | DData String Type                        // Data
+  | DCodata String Type                      // Codata
+  | DGlobLet String Type (Maybe Params) Expr // Global Let
   \vdots
 \end{alltt}
-\caption{Part of the \texttt{Expr} type in findus}
+\caption{Part of the \texttt{Expr} and \text{Defi} type in findus}
 \label{fig:expr}
 \end{figure}
-
+\todo{Fix implementation to have Defi}
 \begin{figure}
 \begin{alltt}
 -- Natural numbers
@@ -61,12 +65,12 @@ natBody = TVari [
 natRec :: Type
 natRec = TRecInd "nat" natBody          -- nat inductive type
 
-nat :: Expr
-nat = EData "nat" natRec                -- nat data definition
+nat :: Defi
+nat = DData "nat" natRec                -- nat data definition
 
 -- Nat Stream
 
-natStreamBody :: [(Sym, Type)]          -- natStream observations
+natStreamBody :: [(String, Type)]          -- natStream observations
 natStreamBody = [
                   ("head", TGlobTypeVar "nat"),     -- Head observation
                   ("tail", TRecTypeVar "natStream") -- Tail observation
@@ -75,19 +79,19 @@ natStreamBody = [
 natStreamRec :: Type                    -- natStream coinductive type
 natStreamRec = TRecCoind "natStream" natStreamBody  
 
-natStream :: Expr                       -- natStream codata definition
-natStream = ECodata "natStream" natStreamRec  
+natStream :: Defi                       -- natStream codata definition
+natStream = DCodata "natStream" natStreamRec  
 \end{alltt}
 \caption{Natural numbers and a stream of natural numbers}
 \label{fig:natandstream}
 \end{figure}
 
-Now that we have a way of representing inductive and coinductive types, let us look at some examples of their use. In Figure~\ref{fig:natandstream}, the abstract syntax representation of natural numbers (\texttt{nat}) and a stream of natural numbers (\texttt{natStream}) is shown. The type \texttt{TGlobTypeVar} is used for referencing globally defined types, and \texttt{TRecTypeVar} is a reference to the type currently being defined. From these we can define the stream of zeros in Figure~\ref{fig:astzeros}. We wrap \texttt{zerosExpr} in a \texttt{EGlobLet} which is a top-level let binding existing in global scope. An \texttt{EGlobLet} is defined by its name, its annotated type, its parameters (if any), and its body.
+Now that we have a way of representing inductive and coinductive types, let us look at some examples of their use. In Figure~\ref{fig:natandstream}, the abstract syntax representation of natural numbers (\texttt{nat}) and a stream of natural numbers (\texttt{natStream}) is shown. The type \texttt{TGlobTypeVar} is used for referencing globally defined types, and \texttt{TRecTypeVar} is a reference to the type currently being defined. From these we can define the stream of zeros in Figure~\ref{fig:astzeros}. We wrap \texttt{zerosExpr} in a \texttt{DGlobLet} which is a top-level let binding existing in global scope. An \texttt{DGlobLet} is defined by its name, its annotated type, its parameters (if any), and its body.
 
 \begin{figure}
 \begin{alltt}
 zerosLet :: Expr
-zerosLet = EGlobLet "zeros" (TGlobTypeVar "natStream") Nothing zerosExpr
+zerosLet = DGlobLet "zeros" (TGlobTypeVar "natStream") Nothing zerosExpr
 
 zerosExpr :: Expr
 zerosExpr = EObserve (TGlobalTypeVar "natStream") [
@@ -99,26 +103,48 @@ zerosExpr = EObserve (TGlobalTypeVar "natStream") [
 \label{fig:astzeros}
 \end{figure}
 
+\subsection{Syntax}\todo{L\ae s}
+We have implemented a simple concrete syntax. We will not discuss this in depth as syntax is not the focus of this project. The language uses \texttt{case} expressions for inductive pattern matching. For copatterns we use an \texttt{observe as} construct inspired by the case expression. The idea is to describe the different observations of a given coinductive type. Examples of the corresponding concrete syntax to the abstract syntax from above can be seen in Figure 
+
+\begin{figure}
+\begin{alltt}
+data nat = \{Z | S nat\}
+
+codata natStream = \{head nat | tail natStream\}
+
+let zeros : natStream =
+  observe natStream as
+    head -> Z ;
+    tail -> zeros
+\end{alltt}
+\caption{Concrete \textit{findus} syntax for \texttt{nat}, \texttt{natStream} and \texttt{zeros}.}
+\end{figure}
+
 \subsection{Type Checking}
-$findus$ is type checked according to the rules described by Pierce\,\cite{Pierce:2002:TPL:509043}. This means that all types are annotated, and none are inferred.
+\textit{findus} is type checked according to the rules described by Pierce\,\cite{Pierce:2002:TPL:509043}. This means that all types are annotated, and none are inferred. Pierce does, however, not give typing rules for codata and copatterns. \todo{Maybe add typing rule for codata?}
 
 When type checking copatterns, we know from Section~\ref{sec:copatterns} that the type of the outcome of an observation depends on the observation made. This means that the expression defining the outcome of an observation must be the same as defined for the observation in the corresponding coinductive type. In the example of \texttt{natStream}, the expression defining a \texttt{head} observation must be of type \texttt{TGlobTypeVar "nat"}. As such, type checking copatterns is fairly simple, as we just need to check that the types of the outcome and the definition of an observation match.
 
 \subsection{Evaluation}
-Due to the nature of coinductive types, they are not actually evaluated until they are observed. As opposed to the approach currently implemented in Idris (discussed in Section~\ref{sec:stateinidris}), with copatterns we need not rely on lazy evaluation. Consider the example of \texttt{nats} in Figure~\ref{fig:nats_copatterns}, which is defined with copatterns. Evaluating \texttt{nats} in itself does not make much sense as there is nothing to evaluate; evaluation does not occur until we observe \texttt{nats}. When evaluating \texttt{nats}, we simply look at the definitions and unfold them. Assuming an evaluation function $\epsilon$, we have the following examples of reductions:
+Due to the nature of coinductive types, they are not actually evaluated until they are observed. The result of evaluating an observation might be a new coinductive definition that we cannot evaluate before it is observed. There are however situations where coinductive definitions can be rewritten to something else. Consider the example of \texttt{nats} in Figure~\ref{fig:nats_copatterns}, which is defined with copatterns. Evaluating \texttt{nats} in itself does not make much sense as there is nothing to evaluate; evaluation does not occur until we observe \texttt{nats}. When evaluating \texttt{nats}, we simply look at the definitions and unfold them. Assuming an evaluation function \texttt{eval}, we have the following examples of reductions:
 
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
-$\epsilon$[head nats] = Z
-$\epsilon$[tail nats] = map S nats
-$\epsilon$[head tail nats] = $\epsilon$[head (map S nats)] = $\epsilon$[S (head nats)] = S Z
-$\epsilon$[tail tail nats] = $\epsilon$[tail (map S nats)] = map S (tail nats)
+eval (head nats) = Z
+eval (tail nats) = map S nats
+eval (head tail nats) = eval (head (map S nats)) 
+                      = eval (S (head nats)) = S Z
+eval (tail tail nats) = eval (tail (map S nats)) 
+                      = map S (tail nats)
 \end{Verbatim}
 
-We evaluate by unfolding until we either cannot unfold a coinductive definition anymore, or get an expression that is not coinductive. We know that a coinductive definition cannot be unfolded if no rewrite rule exists for it. For example, there exists no rewrite rule for \texttt{nats} as it is defined by the observations that can be made on it, but there does exist one for \texttt{tail nats} as it is directly defined as \texttt{map S nats}. Unfolding definitions in this manner could lead to an infinite series of unfolds. If we want a guarantee that this will not happen in a given situation, our coinductive definitions must be checked for productivity. Productivity will be discussed further in Section~\ref{sec:productivity}. 
+We evaluate by unfolding until we either cannot unfold a coinductive definition anymore, or get an expression that is not coinductive. We know that a coinductive definition cannot be unfolded if it is defined by the observations you can make on it. For example, \texttt{nats} is defined by the observations that can be made on it, but \texttt{tail nats} is directly defined as \texttt{map S nats}. Unfolding definitions in this manner could lead to an infinite series of unfolds. If we want a guarantee that this will not happen in a given situation, our coinductive definitions must be checked for productivity. Productivity will be discussed further in Section~\ref{sec:productivity}. 
 
 \subsection{Termination Checking}
-In order to get an in-depth understanding of the size-change principle (as explained in Section~\ref{sec:related_work}), we have implemented a termination checker for findus based on the original formulation of the principle\,\citep{LeeJones01SizeChange}. For the size-change principle, two abstract notions are used: \emph{control points} and \emph{data positions}\,\citep{Krauss07certifiedsizechange}. In short, control points are the entities which must be terminating, while data positions are the entities that change size. For our implementation, the control points are findus functions, and the data positions are the parameters. Inspired by Hyvernat\,\citep{Hyvernat13}, sizes are modeled with an inductive data type. Since we do not have any primitive data types, values can only become structurally smaller through pattern matching, structurally larger by constructor application.
+In order to get an in-depth understanding of the size-change principle (as explained in Section~\ref{sec:related_work}), we have implemented a termination checker for \textit{findus} based on the original formulation of the principle\,\citep{LeeJones01SizeChange}. For the size-change principle, two abstract notions are used: \emph{control points} and \emph{data positions}\,\citep{Krauss07certifiedsizechange}. In short, control points are the entities which must be terminating, while data positions are the entities that change size. For our implementation, the control points are \textit{findus} functions, and the data positions are the parameters. Inspired by Hyvernat\,\citep{Hyvernat13}, sizes are modeled with an inductive data type. Since we do not have any primitive data types, values can only become structurally smaller through pattern matching, and structurally larger by constructor application.
 
-Termination is detected by first constructing a call graph of all direct calls from one function to another. For each of these calls, a size-change graph is constructed. A size-change graph is a 3-tuple \texttt{(f, arcs, g)}, where \texttt{f} and \texttt{g} are functions, and \texttt{arcs} is a set of \emph{size-change arcs}. Size-change arcs capture the relationship between a parameter and the argument given at a function call. This relationship is either \emph{descending} or \emph{non-increasing}, depending on the changes in size. When the size-change graphs have been constructed, indirect recursive calls are found by detecting cycles in the call graph by simple graph traversal. For each of these cycles, we record the chain of size-change graphs (corresponding to the chain of calls) which lead to the cycle. Such a chain of size-change graphs constitute a \emph{multipath}. To identify whether infinite descent is present in a multipath, it is collapsed to a single size-change graph through a simple composition procedure\,\citep{LeeJones01SizeChange}. If some size-change arc represents a \emph{descending} relationship in such a collapsed size-change graph, then the recursive call leads to termination. If all recursive call in a program leads to termination, then the entire program is \emph{size-change terminating}.
+Termination is detected by first constructing a call graph of all direct calls from one function to another. For each of these calls, a size-change graph is constructed. A size-change graph is a 3-tuple \texttt{(f, arcs, g)}, where \texttt{f} and \texttt{g} are functions, and \texttt{arcs} is a set of \emph{size-change arcs}. Size-change arcs capture the relationship between a parameter and the argument given at a function call. This relationship is either \emph{descending} or \emph{non-increasing}, depending on the changes in size. If the change in size is increasing, there is no relationship. When the size-change graphs have been constructed, indirect recursive calls are found by detecting cycles in the call graph by simple graph traversal. For each of these cycles, we record the chain of size-change graphs (corresponding to the chain of calls) which lead to the cycle. Such a chain of size-change graphs constitute a \emph{multipath}. To identify whether infinite descent is present in a multipath, it is collapsed to a single size-change graph through a simple composition procedure\,\citep{LeeJones01SizeChange}. If some size-change arc represents a \emph{descending} relationship in such a collapsed size-change graph, then the recursive call leads to termination. If all recursive calls in a program leads to termination, then the entire program is \emph{size-change terminating}.
 
-The size-change termination checker does not cover coinductive definitions. Due to lack of time, the productivity algorithm presented in Section~\ref{sec:productivity} has not been implemented in findus.
+The size-change termination checker does not cover coinductive definitions. Due to lack of time, the productivity algorithm presented in Section~\ref{sec:productivity} has not been implemented in \textit{findus}.
+
+\subsection{Reflections on Implementation}
+From exploring the implementation of codata and copatterns we have found that implementing them is similar to implementing recursive types. In contrast to inductive types, coinductive types do not have to be folded or unfolded as they are defined by observations, not constructors. We fold to construct inductive types and unfold to inspect how a coinductive type was constructed. Neither of these notions make sense in terms of coinductive types. We construct coinductive types by defining how to observe it, and we inspect it by actually observing it. As such type checking is fairly straight-forward. We have also discussed evaluation which with copatterns is fairly simple due to unfolding. With this in mind the challenge does not lie in the implementation itself, but rather in (1) implementing a productivity checker discussed in Section~\ref{sec:productivity}, and (2) how they can be incorporated in Idris discussed in Section~\ref{sec:copatterns_in_idris}.
