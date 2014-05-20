@@ -43,14 +43,14 @@ assertNonTermination p =
 
 -- General test functions
 
-positiveTest :: [Expr] -> Test
+positiveTest :: [Defi] -> Test
 positiveTest p =
   TestCase $ (case checkRoot (ERoot p) of
                 Right typeCheckedProgram -> do -- putStrLn $ show typeCheckedProgram
                                                assertTermination typeCheckedProgram
                 Left e                   -> assertFailure $ show e)
 
-negativeTest :: [Expr] -> Test
+negativeTest :: [Defi] -> Test
 negativeTest p =
   TestCase $ (case checkRoot (ERoot p) of
                 Right typeCheckedProgram -> do -- putStrLn $ show typeCheckedProgram

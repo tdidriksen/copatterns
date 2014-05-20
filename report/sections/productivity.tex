@@ -209,18 +209,16 @@ funPair = (id, id)
 \label{fig:funList}
 \end{figure}
 
-\subsubsection{Reflection on our Approach}
-We are convinced that this time consistency is determinable by a machine. All analysis is syntactical which means that the user of the language will not have to annotate anything. To support this we have made a natural language description of a possible algorithm. We consider a specification a function taking a time measure and producing a new time measure reflecting the changes noted by the specification. Also note that destructors also can be considered coinductive functions with a specification saying that it increases the time by one.
+\subsubsection{Possible Algorithm}
+We are convinced that time consistency is determinable by a machine. All analysis is syntactical which means that the user of the language does not have to annotate anything. To support this claim we have made a natural language description of a possible algorithm. 
 
-For ease of reading we have defined the following function which will be refered to several times. This function will be refered to as \textit{calculate}
+We consider a specification a function taking a time measure and producing a new time measure reflecting the changes noted by the specification. Also, note that destructors also can be considered coinductive functions with a specification saying that it increases the time by one. For ease of reading we have defined the following function which will be refered to several times as \textit{calculate}.
 
-\begin{centerline}
-\textit{Given a coinductive 	}
-\end{centerline}
-
+\paragraph{
+Given a coinductive definition with time measure $\phi$, if the definition is applied to any coinductive functions, apply the specification of these functions to $\phi$ and return the result. If it is not applied to any coinductive functions, just return $\phi$.}
 \paragraph{f: Coinductive Definition}
 \begin{enumerate}
-\item Create a time measure $\tau$ for the definition
+\item Create a time measure $\tau$ for the definition.
 \item For each observation in the definition do:
 \begin{enumerate}
 \item Count the number of left-hand destructors and add this number to $\tau$. This is the time of this observation. 

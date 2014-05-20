@@ -1,6 +1,6 @@
 %!TEX root = ../main.tex
 \section{Implementing Copatterns}
-\label{sec:implementing-copatterns}\todo{Add concrete syntax.}
+\label{sec:implementing-copatterns}
 %Description of our language.
 %Explains the interesting details of implementing copatterns.
 To explore the implementation of copatterns we have made a small toy language called \textit{findus} implemented in Haskell. It is a functional programming language with first-order functions and simple first-order types. It has the following features:
@@ -51,7 +51,7 @@ data Defi =
 \caption{Part of the \texttt{Expr} and \text{Defi} type in findus}
 \label{fig:expr}
 \end{figure}
-\todo{Fix implementation to have Defi}
+
 \begin{figure}
 \begin{alltt}
 -- Natural numbers
@@ -103,8 +103,8 @@ zerosExpr = EObserve (TGlobalTypeVar "natStream") [
 \label{fig:astzeros}
 \end{figure}
 
-\subsection{Syntax}\todo{L\ae s}
-We have implemented a simple concrete syntax. We will not discuss this in depth as syntax is not the focus of this project. The language uses \texttt{case} expressions for inductive pattern matching. For copatterns we use an \texttt{observe as} construct inspired by the case expression. The idea is to describe the different observations of a given coinductive type. Examples of the corresponding concrete syntax to the abstract syntax from above can be seen in Figure 
+\subsection{Syntax}
+We have implemented a simple concrete syntax, which will briefly explain, but not go in depth with. The language uses \texttt{case} expressions for inductive pattern matching. For copatterns we use an \texttt{observe as} construct inspired by the case expression. The idea is to describe the different observations of a given coinductive type. Examples of the corresponding concrete syntax to the abstract syntax from above can be seen in Figure \ref{fig:concrete_syntax}.
 
 \begin{figure}
 \begin{alltt}
@@ -118,15 +118,16 @@ let zeros : natStream =
     tail -> zeros
 \end{alltt}
 \caption{Concrete \textit{findus} syntax for \texttt{nat}, \texttt{natStream} and \texttt{zeros}.}
+\label{fig:concrete_syntax}
 \end{figure}
 
 \subsection{Type Checking}
-\textit{findus} is type checked according to the rules described by Pierce\,\cite{Pierce:2002:TPL:509043}. This means that all types are annotated, and none are inferred. Pierce does, however, not give typing rules for codata and copatterns. \todo{Maybe add typing rule for codata?}
+\textit{findus} is type checked according to the rules described by Pierce\,\cite{Pierce:2002:TPL:509043}. This means that all types are annotated, and none are inferred. Pierce does, however, not give typing rules for codata and copatterns.
 
-When type checking copatterns, we know from Section~\ref{sec:copatterns} that the type of the outcome of an observation depends on the observation made. This means that the expression defining the outcome of an observation must be the same as defined for the observation in the corresponding coinductive type. In the example of \texttt{natStream}, the expression defining a \texttt{head} observation must be of type \texttt{TGlobTypeVar "nat"}. As such, type checking copatterns is fairly simple, as we just need to check that the types of the outcome and the definition of an observation match.
+When type checking copatterns, we know from Section~\ref{sec:copatterns} that the type of the outcome of an observation depends on the observation made. This means that the expression defining the outcome of an observation must be the same as the type of the observation. In the example of \texttt{natStream}, the expression defining a \texttt{head} observation must be of type \texttt{TGlobTypeVar "nat"}. As such, type checking copatterns is fairly simple, as we just need to check that the types of the outcome and the definition of an observation match.
 
 \subsection{Evaluation}
-Due to the nature of coinductive types, they are not actually evaluated until they are observed. The result of evaluating an observation might be a new coinductive definition that we cannot evaluate before it is observed. There are however situations where coinductive definitions can be rewritten to something else. Consider the example of \texttt{nats} in Figure~\ref{fig:nats_copatterns}, which is defined with copatterns. Evaluating \texttt{nats} in itself does not make much sense as there is nothing to evaluate; evaluation does not occur until we observe \texttt{nats}. When evaluating \texttt{nats}, we simply look at the definitions and unfold them. Assuming an evaluation function \texttt{eval}, we have the following examples of reductions:
+Due to the nature of coinductive types, they are not actually evaluated until they are observed. The result of evaluating an observation might be a new coinductive definition that we again cannot evaluate before it is observed. There are, however, situations where coinductive definitions can be rewritten to something else. Consider the example of \texttt{nats} in Figure~\ref{fig:nats_copatterns}, which is defined with copatterns. Evaluating \texttt{nats} in itself does not make much sense as there is nothing to evaluate; evaluation does not occur until we observe \texttt{nats}. When evaluating \texttt{nats}, we simply look at the definitions and unfold them. Assuming an evaluation function \texttt{eval}, we have the following examples of reductions:
 
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
 eval (head nats) = Z
@@ -137,7 +138,7 @@ eval (tail tail nats) = eval (tail (map S nats))
                       = map S (tail nats)
 \end{Verbatim}
 
-We evaluate by unfolding until we either cannot unfold a coinductive definition anymore, or get an expression that is not coinductive. We know that a coinductive definition cannot be unfolded if it is defined by the observations you can make on it. For example, \texttt{nats} is defined by the observations that can be made on it, but \texttt{tail nats} is directly defined as \texttt{map S nats}. Unfolding definitions in this manner could lead to an infinite series of unfolds. If we want a guarantee that this will not happen in a given situation, our coinductive definitions must be checked for productivity. Productivity will be discussed further in Section~\ref{sec:productivity}. 
+We evaluate by unfolding until we either cannot unfold a coinductive definition anymore, or get an expression that is not coinductive. We say that a coinductive definition cannot be unfolded if it is defined by the observations you can make on it. For example, \texttt{nats} is defined by the observations that can be made on it, but \texttt{tail nats} is directly defined as \texttt{map S nats}. Unfolding definitions in this manner could lead to an infinite series of unfolds. If we want a guarantee that this will not happen in a given situation, our coinductive definitions must be checked for productivity. Productivity will be discussed further in Section~\ref{sec:productivity}. 
 
 \subsection{Termination Checking}
 In order to get an in-depth understanding of the size-change principle (as explained in Section~\ref{sec:related_work}), we have implemented a termination checker for \textit{findus} based on the original formulation of the principle\,\citep{LeeJones01SizeChange}. For the size-change principle, two abstract notions are used: \emph{control points} and \emph{data positions}\,\citep{Krauss07certifiedsizechange}. In short, control points are the entities which must be terminating, while data positions are the entities that change size. For our implementation, the control points are \textit{findus} functions, and the data positions are the parameters. Inspired by Hyvernat\,\citep{Hyvernat13}, sizes are modeled with an inductive data type. Since we do not have any primitive data types, values can only become structurally smaller through pattern matching, and structurally larger by constructor application.

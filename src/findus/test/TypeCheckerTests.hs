@@ -50,7 +50,7 @@ main = do _ <- runTestTT $ tests
 testCheck :: Expr -> CheckEnv -> Either TypeError Type -> Test
 testCheck e envs (Left err) = TestCase $ negativeTest e envs err
 testCheck e envs (Right t)  = TestCase $ positiveTest e envs t
-  
+
 positiveTest :: Expr -> CheckEnv -> Type -> Assertion
 positiveTest e (eEnv, tEnv) t = 
   case check eEnv tEnv e of
@@ -63,10 +63,27 @@ negativeTest e (eEnv, tEnv) err =
     Right te  -> assertFailure ("Expected error: " ++ (show err) ++ ", but type checking was successful and resulted in " ++ (show te))
     Left aerr -> assertEqual "Resulting error equality" err aerr
 
+testCheckDef :: Defi -> CheckEnv -> Either TypeError Type -> Test
+testCheckDef e envs (Left err) = TestCase $ negativeDefTest e envs err
+testCheckDef e envs (Right t)  = TestCase $ positiveDefTest e envs t
+
+positiveDefTest :: Defi -> CheckEnv -> Type -> Assertion
+positiveDefTest e (eEnv, tEnv) t = 
+  case checkDef eEnv tEnv e of
+    Right te -> assertEqual "Resulting type equality" (getTypeAnno te) t
+    Left err -> assertFailure $ show err
+
+negativeDefTest :: Defi -> CheckEnv -> TypeError -> Assertion
+negativeDefTest e (eEnv, tEnv) err =
+  case checkDef eEnv tEnv e of
+    Right te  -> assertFailure ("Expected error: " ++ (show err) ++ ", but type checking was successful and resulted in " ++ (show te))
+    Left aerr -> assertEqual "Resulting error equality" err aerr
+  
+
 inEmpty :: CheckEnv
 inEmpty = ([], [])
 
-inRoot :: [Expr] -> CheckEnv
+inRoot :: [Defi] -> CheckEnv
 inRoot es =
   case buildRootEnv es of
     Right envs -> envs
@@ -122,7 +139,7 @@ simpleUnit = testCheck EUnit
             (toHaveType TUnit)
 
 simpleNat :: Test
-simpleNat = testCheck nat 
+simpleNat = testCheckDef nat 
             inEmpty 
            (toHaveType natRec)
 
@@ -152,7 +169,7 @@ negativeTagWrongLabel = testCheck (ETag "K" [] natBody)
                        (toFailWith $ LabelNotFound "K" natBody)
 
 negativeTagWrongType :: Test
-negativeTagWrongType = testCheck (ETag "Z" [nat] natBody)
+negativeTagWrongType = testCheck (ETag "Z" [EUnit] natBody)
                        inEmpty
                       (toFailWith $ Err "")
 
@@ -178,47 +195,47 @@ negativeUnfold = testCheck (EUnfold TUnit)
                 (toFailWith $ Unexpected TUnit "")
 
 simpleData :: Test
-simpleData = testCheck (EData "nat" natRec) 
+simpleData = testCheckDef (DData "nat" natRec) 
              inEmpty
             (toHaveType natRec)
 
 negativeDataWrongName :: Test
-negativeDataWrongName = testCheck (EData "bat" natRec)
+negativeDataWrongName = testCheckDef (DData "bat" natRec)
                         inEmpty
                        (toFailWith $ Err "")
 
 negativeDataNotRec :: Test
-negativeDataNotRec = testCheck (EData "nat" natBody)
+negativeDataNotRec = testCheckDef (DData "nat" natBody)
                      inEmpty
                     (toFailWith $ Unexpected natBody "")
 
 simpleCodata :: Test
-simpleCodata = testCheck (ECodata "natStream" natStreamRec)
+simpleCodata = testCheckDef (DCodata "natStream" natStreamRec)
                inEmpty
               (toHaveType natStreamRec)
 
 negativeCodataWrongName :: Test
-negativeCodataWrongName = testCheck (ECodata "bat" natStreamRec)
+negativeCodataWrongName = testCheckDef (DCodata "bat" natStreamRec)
                           inEmpty
                          (toFailWith $ Err "")
 
 negativeCodataNotRec :: Test
-negativeCodataNotRec = testCheck (ECodata "nat" TUnit)
+negativeCodataNotRec = testCheckDef (DCodata "nat" TUnit)
                        inEmpty
                       (toFailWith $ Unexpected TUnit "")
 
 typeSubtractSlowly :: Test
-typeSubtractSlowly = testCheck subtractSlowly 
+typeSubtractSlowly = testCheckDef subtractSlowly 
                     (inRoot [nat, subtractSlowly]) 
                     (toHaveType (TArr [natRec] natRec))
 
 typeSubtractSlowlyWithPred :: Test
-typeSubtractSlowlyWithPred = testCheck subtractSlowlyWithPred 
+typeSubtractSlowlyWithPred = testCheckDef subtractSlowlyWithPred 
                             (inRoot [nat, subtractSlowlyWithPred]) 
                             (toHaveType $ TArr [natRec] natRec)
 
 typeForever :: Test
-typeForever = testCheck forever 
+typeForever = testCheckDef forever 
              (inRoot [nat, forever]) 
              (toHaveType $ TArr [natRec] natRec)
 
