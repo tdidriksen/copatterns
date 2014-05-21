@@ -44,7 +44,7 @@ src/findus/dist
 *.nav
 *.nlo
 *.out
-*.pdf
+main.pdf
 *.pdfsync
 *.ps
 *.snm
