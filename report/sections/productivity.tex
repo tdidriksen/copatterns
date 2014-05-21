@@ -65,11 +65,11 @@ What we ultimately seek is a productivity checking algorithm for definitions wit
 % Why not sized types? 
 % Why not the haskell way?
 \subsection{Proposed Solution}
-The basic idea of our proposal is \textit{time measurement}. We wish to always know how many observations we can safely make on a given recursive reference. To do this we use time as an analogy. When defining what happens at a given time we can only refer to what has happened earlier. Each observation is defined by what happens one time unit later. We will use days as an analogy. To know what happens on any given day we can only refer to what has happened earlier than that day. If we translate the days to numbers, where later days are given higher numbers, we can express this idea of only being able to reference back in time with an inequality.
+The basic idea of our proposal is \textit{time measurement}. We wish to always know how many observations we can safely make on a given recursive reference. To do so, we use time as an analogy. When defining what happens at a given time, we can only refer to what has happened earlier. Since anything we observe must exist before we can observe it, any observation on a coinductive instance happens after this instance is created. We will explain this using days as our time unit. To define what happens on any given day, we can only refer to what has happened on previous days. If we translate the days to numbers, where later days are given higher numbers, we can express this idea of only being able to reference back in time with an inequality.
 
-If a given function \texttt{f} ``is defined'' on day $\tau$, then the first observation on \texttt{f} is defined on day $\tau+1$, the second observation on day $\tau+2$ etc. If we wish to define what is defined on any given day $\tau+n$ we can only refer to observations made earlier, on an earlier day $\phi$. We know that $\phi$ is an earlier day if $\tau+n\, \textgreater \,\phi$ holds. Any definition that comply with this is said to be time consistent, as there are no references to something that has not yet happened. If we think of observations as places in time, if we cannot refer to something that has not yet happened, we cannot refer to an observation that does not exist. Therefore, any observation that is time consistent is also safe. As such we can see time consistency as equivalent to productivity.
+If a given function \texttt{f} ``is created'' on day $\tau$, then the first observation on \texttt{f} is takes place on day $\tau+1$, the second observation on day $\tau+2$ etc. If we wish to define the result of an observation on any given day $\tau+n$ we can only refer to observations made on an earlier day $\phi$. We know that $\phi$ is an earlier day if $\tau+n\, \textgreater \,\phi$ holds. Any observation that complies with this definition is said to be \emph{time consistent}, as it makes no references to something that has not yet happened. If we think of observations as places in time, if we cannot refer to something that has not yet happened, we cannot refer to an observation that is unsafe to make. Therefore, any observation that is time consistent is also safe. As such, we can see time consistency as equivalent to productivity.
 
-In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with these time measures. Since \texttt{zeros} is the starting point we give that a base measure $\tau$. Both the \texttt{head} and the \texttt{tail} observations are defined one day later than \texttt{zeros}, they both get time measure $\tau+1$. To determine if \texttt{zeros} is productive we must examine the right hand sides of the observations. The \texttt{head} observation is simple as there are no corecursive calls. Therefore it gets the time measure $stable$ as we assume that \texttt{Z} is always known. We use this measure for any reference that is not corecursive. In terms of an numeric value $stable$ can be thought of as negative infinity. In the \texttt{tail} observation we have a corecursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time of \texttt{zeros}. To determine the productivity we must ensure that observations are only defined by what has already happened. Looking at this as an inequality we can see that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,stable$ and in the \texttt{tail} $\tau+1\,\textgreater\,\tau$. Note that all these annotations can be inferred.
+In Figure~\ref{fig:zeros} we decorate a definition \texttt{zeros} with \emph{time measures}. Since \texttt{zeros} is the starting point, we give it a base measure $\tau$. Any \texttt{head} or \texttt{tail} observations happens one day later than \texttt{zeros}, so they both get time measure $\tau+1$. To determine if \texttt{zeros} is productive, we examine the right hand sides of the observations. The \texttt{head} observation is simple to establish, as there are no corecursive calls. Therefore it gets the time measure $stable$, because we assume that \texttt{Z} is always known. We use this measure for any reference that is known not to be corecursive. The numeric value $stable$ can thus be thought of as negative infinity. In the \texttt{tail} observation we have a corecursive reference to \texttt{zeros}. This gets the time measure $\tau$ which is the time at which \texttt{zeros} is ``created''. To determine productivity, we must ensure that observations are only defined by what has already happened. Defining this notion as an inequality, we can see that \texttt{zeros} is productive because in the \texttt{head} case $\tau+1\,\textgreater\,stable$ holds, and in the \texttt{tail} case $\tau+1\,\textgreater\,\tau$ holds. Note that all of these annotations can be inferred.
 
 \begin{figure}
 \begin{tabular}{l c}
@@ -94,7 +94,7 @@ tail$_{\tau+1}$ zeros$_{\tau}$ = zeros$_{\tau}$
 \label{fig:zeros}
 \end{figure}
 
-In Figure~\ref{fig:zerosprime} we see a diverging implementation of \texttt{zeros} called \texttt{zeros'}. To establish that this is not productive we decorate the program in the same fashion as above, but this time the recursive reference in the \texttt{tail} case has time measure $\tau+1$ rather than $\tau$ because we make an observation on the right-hand side of \texttt{zeros}. For this to be productive, $\tau+1\,\textgreater\,\tau+1$ must hold which it clearly does not. Therefore we can say that \texttt{zeros'} is not productive.
+In Figure~\ref{fig:zerosprime} a diverging implementation of \texttt{zeros}, called \texttt{zeros'}, is shown. To establish that \texttt{zeros'} is not productive, we decorate the program in the same fashion as above. This time the recursive reference in the \texttt{tail} case has time measure $\tau+1$ rather than $\tau$, because we make an observation on \texttt{zeros'} on the right-hand side of the \texttt{tail} observation. For this to be productive, $\tau+1\,\textgreater\,\tau+1$ must hold, which it clearly does not. Therefore we can say that \texttt{zeros'} is not productive, since the definition of \texttt{tail zeros'} is not complete at the time when the \texttt{tail} observation is made on \texttt{zeros'} on the right-hand side.
 
 \begin{figure}
 \begin{tabular}{l c}
@@ -121,7 +121,7 @@ tail$_{\tau+1}$ zeros'$_{\tau}$ = tail$_{\tau+1}$ zeros'$_{\tau}$
 
 \subsubsection{Coinductive Definitions with Coinductive Parameters}
 
-Sometimes we want to write definitions that depend on other functions with coinductive parameters. When decorating \texttt{nats} in Figure~\ref{fig:nats_productivity} we can not give the right hand side of the \texttt{tail} observation an accurate time measure as we don't know what \texttt{map} does to \texttt{nats}. We must first analyse \texttt{map} to see the effect it has on its parameters.
+Sometimes we want to write definitions that depend on other functions with coinductive parameters. When decorating \texttt{nats} in Figure~\ref{fig:nats_productivity}, we cannot give the right-hand side of the \texttt{tail} observation an accurate time measure since we do not know what \texttt{map} does to \texttt{nats}. We must first analyze \texttt{map} to see the effect it has on its coinductive argument.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -133,7 +133,7 @@ tail$_{\tau+1}$ nats$_{\tau}$ = (map S nats)$_{?}$
 \label{fig:nats_productivity}
 \end{figure}
 
-When analysing \texttt{map} we introduce a new time measure for each coinductive input the function takes. This measure is not used for checking the productivity \texttt{map} but is used for callers of \texttt{map} to see how many observations \texttt{map} performs on a given input. This means that in addition to checking the productivity of \texttt{map} we also create a \textit{specification} for \texttt{map} that other functions can then use, to determine whether the call to \texttt{map} would be productive or not. A specification can be saved in an internal hidden type for later use by the productivity checker.
+When analysing \texttt{map}, a new time measure is introduced for each coinductive argument to the function. This measure is not used for checking the productivity \texttt{map} itself, but is used for callers of \texttt{map} to see how many observations \texttt{map} makes on a given argument. Consequently, in addition to checking the productivity of \texttt{map}, we also create a \textit{specification} for \texttt{map} which other functions can use to determine whether a call to \texttt{map} would lead to a productive definition. A specification can be saved in an internal hidden type for later use by the productivity checker.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -145,9 +145,9 @@ tail$_{\phi+1}$ (map f s)$_{\phi}$ = map f (tail$_{\upsilon+1}$ s$_{\upsilon}$)$
 \label{fig:map}
 \end{figure}
 
-Making the specification is fairly simple. Since we are interested in knowing how many new observations \texttt{map} possibly makes on an input we are looking for the worst case for every input. In the case of \texttt{map} the worst case for time measure $\upsilon$ is $\upsilon+1$, which tells us that \texttt{map} performs at most one observation on the input. The specification, however, is not done. While it is true that \texttt{map} does make one observation on its input, it does not do so until \texttt{map} itself is observed. This means that any reference to \texttt{map} would need one more observation on its left-hand side to invoke the observations \texttt{map} makes. So even though \texttt{map} adds one observation, it does so one day later. This delay of the observation counteracts the observation map makes. We model this counteraction by subtracting one from the time measure given to $\upsilon$ in the specification.
+Making the specification is fairly simple. Since we are interested in knowing how many new observations \texttt{map} possibly makes on an argument, the greatest number of observations made on each coinductive argument must be identified. In the case of \texttt{map}, the greatest number of observations made on the stream argument (which is given time measure $\upsilon$) is $\upsilon+1$, which tells us that \texttt{map} performs at most one observation on this argument. This does not finish the specification, however. While it is true that \texttt{map} does make one observation on its stream argument, it does not do so until \texttt{map} itself is observed. This means that any reference to \texttt{map} would need one more observation on its left-hand side to invoke the observations \texttt{map} makes. So even though \texttt{map} adds one observation, it does so one day later. This delay of the observation counteracts the observation map makes. We model this counteraction by subtracting one from the time measure given to $\upsilon$ in the specification.
 
-This gives us $\upsilon+1-1$ or just $\upsilon$, which means that the specification for \texttt{map} does not perform any additional observations on its input. This means we can now complete the annotation of \texttt{nats} from Figure~\ref{fig:nats_productivity}. Since the specification of \texttt{map} tells us that any input remains unchanged, we know that the time measure of the call to \texttt{map} with \texttt{nats} as input in Figure~\ref{fig:natsComplete} is $\tau$. We can therefore conclude that \texttt{nats} is productive, as $\tau+1\,\textgreater\,\tau$.
+This gives us $\upsilon+1-1$ or just $\upsilon$, which means that according to its specification, \texttt{map} does not perform any additional observations on its input. We can now complete the annotation of \texttt{nats} from Figure~\ref{fig:nats_productivity}. As the specification of \texttt{map} tells us that any input remains unchanged, we know that the time measure of the call to \texttt{map} with \texttt{nats} as input in Figure~\ref{fig:natsComplete} is $\tau$. We can therefore conclude that \texttt{nats} is productive, as $\tau+1\,\textgreater\,\tau$.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -155,12 +155,12 @@ nats$_{\tau}$ : Stream Nat
 head$_{\tau+1}$ nats$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+1}$ nats$_{\tau}$ = (map S nats$_{\tau}$)$_{\tau}$
 \end{Verbatim}
-\caption{A \texttt{Stream} of all the natural numbers with full time annotations.}
+\caption{A \texttt{Stream} of all the natural numbers, fully annotated with time measures.}
 \label{fig:natsComplete}
 \end{figure}
 
 \subsubsection{Mutual Recursion}
-For checking productivity of mutually recursive coinductive definitions, we assume that we know which definitions refer to each other. Similar to the previous example we then make a specification for each function that can then be used to check the productivity of the callers. Instead of this specification saying what happens to the input, it says what happens to a specific call. Looking at two mutually recursive definitions \texttt{f} and \texttt{g} in Figure~\ref{fig:mutRec1}. For \texttt{f} we define specification $\tau_{g}$ saying what happens to the time measure $\tau$ in \texttt{g} and vice versa we define $\upsilon_{f}$ for \texttt{g}. For the \texttt{tail} case in \texttt{f} to be productive we need that $\tau+1\,\textgreater\,\tau_{g}$ and for \texttt{g} we need $\upsilon+1\,\textgreater\,\upsilon_{f}+1$ to hold.
+For checking the productivity of mutually recursive coinductive definitions, we assume that we know which definitions refer to each other. Similar to the previous example, a specification is made for each function that can then be used to check the productivity of the callers. These specifications do not specify what happens to the input, but what happens to a specific call. Consider the two mutually recursive definitions \texttt{f} and \texttt{g} in Figure~\ref{fig:mutRec1}. For \texttt{f} we define specification $\tau_{g}$ saying what happens to the time measure $\tau$ in \texttt{g}, and vice versa we define $\upsilon_{f}$ for \texttt{g}. For the \texttt{tail} case in \texttt{f} to be productive we need that $\tau+1\,\textgreater\,\tau_{g}$ and for \texttt{g} we need $\upsilon+1\,\textgreater\,\upsilon_{f}+1$ to hold.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -176,12 +176,12 @@ tail$_{\upsilon+1}$ g$_{\upsilon}$ = tail$_{\upsilon_{f}+1}$ f$_{\upsilon_{f}}$
 \label{fig:mutRec1}
 \end{figure}
 
-Creating these specifications again is simple, and inferrable. To find $\upsilon_{f}$ we look at the references to \texttt{g} in \texttt{f}. We see that there is one observation on the left hand side and none on the right hand side. For the same reason as with \texttt{map} we subtract one for the left hand observations and add one for the right hand side observations. This means that $\upsilon_{f} = \upsilon - 1$. Using the same approach for finding $\tau_{g}$ we get that $\tau_{g} = \tau$. We can now substitute these values into the inequalities from earlier and get that $\tau+1\,\textgreater\,\tau$ and $\upsilon+1\,\textgreater\,\upsilon - 1$. Therefore \texttt{f} and \texttt{g} are productive.
+Creating these specifications is again simple, and inferrable. To find $\upsilon_{f}$ we examine the references to \texttt{g} in \texttt{f}. The \texttt{tail} observation has one observation on the left-hand side and none on the right-hand side. For the same reason as with \texttt{map}, we subtract one for the left-hand side observations and add one for the right-hand side observations. This means that $\upsilon_{f} = \upsilon - 1$. Using the same approach for finding $\tau_{g}$ we get that $\tau_{g} = \tau$. We can now substitute these values into the inequalities from earlier and get that $\tau+1\,\textgreater\,\tau$ and $\upsilon+1\,\textgreater\,\upsilon - 1$. Therefore \texttt{f} and \texttt{g} are productive.
 
 \subsubsection{Known Limitations}
 We have discovered a few limitations to this approach. In this section we will present them and discuss possible solutions.
 
-Our approach does not solve the problems discussed in Section~\ref{sec:guarded_cored} directly. The first is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $\tau+1\,\textgreater\,\tau+2$. It is, however, easily solvable due to our use of copatterns. Since \texttt{head tail h} is directly defined we can say that \texttt{head h} is productive if \texttt{head tail h} is productive.
+Our approach does not solve the problems discussed in Section~\ref{sec:guarded_cored} directly. The first is if an observation refers to something that is trivially productive, but under more observations. Consider the example in Figure~\ref{fig:forwardRef}. This definition is productive, but will be discarded by our approach as it does not hold that $\tau+1\,\textgreater\,\tau+2$. It is, however, easily solvable due to our use of copatterns. Since \texttt{head tail h} is directly defined, \texttt{head h} can be said to be productive if \texttt{head tail h} is productive.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -190,11 +190,11 @@ head$_{\tau+1}$ h$_{\tau}$         = head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$
 head$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = Z$_{stable}$
 tail$_{\tau+2}$ tail$_{\tau+1}$ h$_{\tau}$ = tail$_{\tau+1}$ h$_{\tau}$
 \end{Verbatim}
-\caption{An example of a productive definition our productivity checker would discard.}
+\caption{An example of a productive definition our productivity checking algorithm would discard.}
 \label{fig:forwardRef}
 \end{figure}
 
-Another limitation is functions returning arbitrary functions. In Figure~\ref{fig:funList} we cannot give an accurate time measure to \texttt{(funPair) i} because we do not know anything about what \texttt{fst funPair} does to \texttt{i}. Attempting to solve this could be done by estimating a worst case scenario for \texttt{funPair}. This, however, involves a lot of unfolding risking making the productivity checker very slow, while still not providing a very accurate analysis. We have not been able to find a desirable solution to this problem.
+Another limitation is functions returning arbitrary functions. In Figure~\ref{fig:funList}, we cannot give an accurate time measure to \texttt{(funPair) i} because we do not know anything about what \texttt{fst funPair} does to \texttt{i}. A possible solution is estimating a worst case scenario for \texttt{funPair}. This, however, involves a lot of unfolding, at the risk of making the productivity checker very slow, while still not providing a very accurate analysis. We have not been able to find a desirable solution to this problem.
 
 \begin{figure}
 \begin{Verbatim}[commandchars=\\\{\},codes={\catcode`$=3\catcode`_=8}]
@@ -205,66 +205,66 @@ tail$_{\tau+1}$ (i)$_{\tau}$ = (fst funPair) i$_{?}$
 funPair : (Stream a, Stream a)
 funPair = (id, id)
 \end{Verbatim}
-\caption{An example of a productive definition our productivity checker would discard.}
+\caption{Another example of a productive definition discarded by our productivity checking algorithm.}
 \label{fig:funList}
 \end{figure}
 
 \subsubsection{Possible Algorithm}
-We are convinced that time consistency is determinable by a machine. All analysis is syntactical which means that the user of the language does not have to annotate anything. To support this claim we have made a natural language description of a possible algorithm. 
+We are convinced that time consistency is determinable by a machine. All analysis is syntactical which means that the user of the language does not have to annotate anything. To support this claim, we have made a natural language description of a possible algorithm. 
 
-We consider a specification a function taking a time measure and producing a new time measure reflecting the changes noted by the specification. Also, note that destructors also can be considered coinductive functions with a specification saying that it increases the time by one. For ease of reading we have defined the following function which will be refered to several times as \textit{calculate}.
+A specification is considered a function from a time measure to a new time measure, reflecting the changes described by the specification. Note that destructors can be considered to be coinductive functions with a specification saying that one observation is made on its input, thus increasing the time by one. For ease of reading, we define the following function which will be referred to several times as \textit{calculate}:
 
 \paragraph{
-Given a coinductive definition with time measure $\phi$, if the definition is applied to any coinductive functions, apply the specification of these functions to $\phi$ and return the result. If it is not applied to any coinductive functions, just return $\phi$.}
+Given a coinductive definition with time measure $\phi$, if the definition is passed as an argument to any other coinductive definitions, apply the specifications of these definitions to $\phi$ and return the result. If it is not passed to any other coinductive definitions, just return $\phi$.}
 \paragraph{f: Coinductive Definition}
 \begin{enumerate}
 \item Create a time measure $\tau$ for the definition.
 \item For each observation in the definition do:
 \begin{enumerate}
-\item Count the number of left-hand destructors and add this number to $\tau$. This is the time of this observation. 
-\item Find all corecursive reference on the right-hand side. Calculate the time measure of all these references using \textit{calculate}.
-\item Find all non-corecursive reference on the right-hand side. Assign them the time measure $stable$.
+\item Count the number of left-hand side destructors and add this number to $\tau$. This is the time of this observation. 
+\item Find all corecursive references on the right-hand side. Calculate the time measure of all these references using \textit{calculate}.
+\item Find all non-corecursive references on the right-hand side. Assign them the time measure $stable$.
 \item The time of the observation (from (a)) must be greater than the greatest time measure on the right-hand side.
 \end{enumerate}
-\item If 2.(d) holds for all observations the definition is productive.
+\item If 2.(d) holds for all observations, the definition is time consistent.
 \end{enumerate}
 
-\paragraph{g: Coinductive Functions}
+\paragraph{g: Coinductive Definitions with Coinductive Parameters}
 \begin{enumerate}
-\item Check the productivity of function itself using $f$, ignoring the coinductive parameters.
+\item Check the productivity of the definition itself using $f$, ignoring the coinductive parameters.
 \item For each input parameter create a time measure.
 \item For each observation in the definition do:
 \begin{enumerate}
-\item Count the number of left-hand destructors. This is the time offset.
+\item Count the number of left-hand side destructors. This is the time offset.
 \item For each reference to the coinductive input do:
 \begin{enumerate}
 \item Calculate the time measure of the reference using \textit{calculate}.
-\item Subtract the offset from these the result.
+\item Subtract the offset from the result.
 \end{enumerate}
+\item For each input, find the greatest time measure.
 \end{enumerate}
-\item For each input find the greatest time measure in all observation.
-\item These greatest measures is the specification.
+\item The specification of the definition is made up of the greatest time measure for each coinductive parameter.
 \end{enumerate}
 \paragraph{h: Mutually Corecursive Definition}
 \begin{enumerate}
-\item For each mutually corecursive definition do:
+\item For each mutually corecursive definition $k$ do:
 \begin{enumerate}
-\item Check the productivity of the function itself using $f$, ignoring the mutually corecursive references
-\item Create a time measure for every definition with which it is mutually corecursive.
-\item For each observation with a reference to a mutual definition do:
+\item Check the productivity of $k$ itself using $f$, ignoring the mutually corecursive references.
+\item Create a time measure for every definition with which $k$ is mutually corecursive.
+\item For each observation on $k$ with mutually corecursive references do:
 \begin{enumerate}
-\item Count the number of left-hand destructors. This is the time offset.
-\item Calculate the time measure of the references using $calculate$.
-\item Subtract the offset from these references.
+\item Count the number of left-hand side destructors. This is the time offset.
+\item Calculate the time measure of each reference using $calculate$.
+\item Subtract the offset from these time measures.
 \end{enumerate}
-\item For each definition this definitiion with which it is mutually corecursive, find the greatest time measure. These are the time measures of other definitions in this definition.
-\item For each observation with a reference to a mutual definition do:
+\item For each definition with which $k$ is mutually corecursive, find the greatest time measure. These are the local time measures of other definitions within $k$, indicating the effect $k$ has on these other definitions.
+\item For each observation on $k$ with mutually corecursive references do:
 \begin{enumerate}
 \item Count the number of left-hand side destructors. This is the time of this observation.
-\item Look up the time measure for this definition in that definition.
-\item Calculate the time measure of this reference using $calculate$ with the time measure from above as input.
+\item Look up the time measure for $k$ in the specification for the function defining each mutually corecursive reference.
+\item Calculate the time measures of the mutually corecursive references using $calculate$ with the time measure for $k$ as input in each case.
 \item The time of the observation must be greater than the greatest time measure given on the right-hand side.
 \end{enumerate}
-\item If the 1.e.iv. holds for all observation this definition is productive.
+\item If the condition in 1.e.iv. holds for all observations this definition is time consistent.
 \end{enumerate}
 \end{enumerate}
