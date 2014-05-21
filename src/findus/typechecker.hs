@@ -7,6 +7,7 @@ import Expr
 import Data.Graph.Inductive.Query.Monad
 import Data.List (sort)
 
+-- Output expression
 data TypedExpr
   = TEUnit       Type
   | TEVar        Type Sym
@@ -82,48 +83,21 @@ instance Eq TypeError where
 instance Error TypeError where
   noMsg = Err ""
 
+------ Typing ------
 
-typeVarLookup :: Sym -> Env -> Either TypeError Type
-typeVarLookup s env = case lookup s env of
-                       Just(t) -> return t
-                       Nothing -> throwError $ NotInScope s
+-- Check Root Expression
+checkRoot :: Expr -> Either TypeError [TypedExpr]
+checkRoot (ERoot ds) = case buildRootEnv ds of
+                         Right l -> do
+                          vEnv <- assocDups $ fst l
+                          tEnv <- assocDups $ snd l
+                          let ts = map (checkDef vEnv tEnv) ds in 
+                            case eitherUnzip $ ts of
+                              Right ts -> return ts
+                              Left err -> throwError err
+                         Left err -> throwError err
 
-typeEquality :: Type -> Type -> Env -> Either TypeError Type
-typeEquality t1 t2 env | (globTypeSubst env t1) == (globTypeSubst env t2) = return t1
-                       | otherwise = throwError $ TypeMismatch (globTypeSubst env t1) (globTypeSubst env t2)
-
-listTypeEquality :: [Type] -> [Type] -> Env -> Either TypeError [Type]
-listTypeEquality (x : xs) (y : ys) env = do
-  t <- (typeEquality x y env)
-  ts <- (listTypeEquality xs ys env)
-  return $ t : ts
-listTypeEquality [] [] env = return []
-listTypeEquality xs ys env = throwError $ Err $ "Type mismatch on lists: " ++ (show xs) ++ " and " ++ (show ys)
-
-isNotArrowType :: Type -> Either TypeError Type
-isNotArrowType (TArr t1 t2) = throwError $ (TypeNotAllowed (TArr t1 t2) "Arrow type not allowed")
-isNotArrowType t            = return t
-
-maybeAppend :: Maybe [a] -> [a] -> [a]
-maybeAppend (Just xs) ys = xs ++ ys
-maybeAppend Nothing   ys =       ys
-
-assocJoin :: Eq a => [(a, b)] -> [(a, c)] -> [(b, c)]
-assocJoin [] ys       = []
-assocJoin (x : xs) ys = case lookup (fst x) ys of
-                          Just y  -> (snd x, y) : assocJoin xs ys
-                          Nothing -> error $ "Not found"
-
-pairConcat :: [([a], [b])] -> [(a, b)]
-pairConcat [] = []
-pairConcat (x : xs) = zip (fst x) (snd x) ++ (pairConcat xs)
-
-matchTEWithType :: (TypedExpr, Type) -> Env -> Either TypeError Type
-matchTEWithType (te, t) = typeEquality (getTypeAnno te) t
-
-bagEq :: Ord a => [a] -> [a] -> Bool
-bagEq xs ys = sort xs == sort ys
-
+-- Typing of Expr
 check :: Env -> Env -> Expr -> Either TypeError TypedExpr
 check _ _ EUnit              = return $ TEUnit TUnit
 check vEnv tEnv (EVar x) = case (lookup x vEnv) of
@@ -229,104 +203,7 @@ check vEnv tEnv (EUnfold t) = do
     t         -> throwError $ Unexpected t "inductive type"
 check _ _ e = throwError $ NotValidExpression e
 
-listMapFst :: (a -> c) -> [(a, b)] -> [(c, b)]
-listMapFst f p = zip (map f (fst $ unzip p)) (snd $ unzip p)
-
-listMapSnd :: (b -> c) -> [(a, b)] -> [(a, c)]
-listMapSnd f p = zip (fst $ unzip p) (map f (snd $ unzip p))
-
-checkSym :: Env -> Sym -> Either TypeError Type
-checkSym []            name = throwError $ NotInScope name
-checkSym ((l, t) : es) name | l == name = return t
-                            | otherwise = checkSym es name
-
-eitherUnzip :: [Either a b] -> Either a [b]
-eitherUnzip []       = return []
-eitherUnzip (x : xs) = case x of 
-                        Left e  -> Left e
-                        Right t -> do
-                          ts <- eitherUnzip xs
-                          return $ t : ts
-
-assocDups :: [(Sym, a)] -> Either TypeError [(Sym, a)]
-assocDups (x : []) = return $ [x]
-assocDups (x : xs) = case lookup (fst x) xs of
-                                      Just _ -> throwError $ DuplicateName (fst x)
-                                      Nothing -> do
-                                        rest <- assocDups xs
-                                        return $ x : rest
-assocDups _ = throwError $ Err "No symbols"
-
-substTypeVari :: Sym -> Type -> Type -> Type
-substTypeVari s t (TArr  t1 t2) = TArr (map (substTypeVari s t) t1) (substTypeVari s t t2)
-substTypeVari s t (TVari    ts) = TVari   $ listMapSnd (map $ substTypeVari s t) ts
-substTypeVari s t (TRecInd s' t') = TRecInd s' (substTypeVari s t t')
-substTypeVari s t (TRecTypeVar s') | s == s' = t
-substTypeVari _ _ a = a
-
-
-globTypeSubst :: Env -> Type -> Type
-globTypeSubst env (TArr t1 t2)     = TArr (map (globTypeSubst env) t1) (globTypeSubst env t2)
-globTypeSubst env (TVari ts)       = TVari $ listMapSnd (map $ globTypeSubst env) ts
-globTypeSubst env (TRecInd s t)    = TRecInd s (globTypeSubst env t)
-globTypeSubst env (TGlobTypeVar s) = case lookup s env of
-                                           Just(t) -> globTypeSubst env t
-                                           _ -> TGlobTypeVar "not found"
-globTypeSubst _ a = a
-
-globTypeInExprSubst :: Env -> Expr -> Expr
-globTypeInExprSubst env (EApp e1 e2) = EApp (globTypeInExprSubst env e1) (map (globTypeInExprSubst env) e2)
-globTypeInExprSubst env (ELet s t ps e1 e2) = ELet s (globTypeSubst env t) (listMapSnd (globTypeSubst env) <$> ps) (globTypeInExprSubst env e1) (globTypeInExprSubst env e2)
-globTypeInExprSubst env (ECase e es) = ECase (globTypeInExprSubst env e) (listMapSnd (mapSnd (globTypeInExprSubst env)) es)
-globTypeInExprSubst env (ETag s es t) = ETag s (map (globTypeInExprSubst env) es) (globTypeSubst env t)
-globTypeInExprSubst env (EFold t) = EFold (globTypeSubst env t)
-globTypeInExprSubst env (EUnfold t) = EUnfold (globTypeSubst env t)
---globTypeInExprSubst env (ERoot es) = ERoot (map (globTypeInExprSubst env) es)
---globTypeInExprSubst env (EData s t) = EData s (globTypeSubst env t)
---globTypeInExprSubst env (EGlobLet s t ps e) = EGlobLet s (globTypeSubst env t) (listMapSnd (globTypeSubst env) <$> ps) (globTypeInExprSubst env e)
-globTypeInExprSubst _ a = a
- 
-buildRootEnv :: [Defi] -> Either TypeError (Env, Env)
-buildRootEnv []       = Right ([], [])
-buildRootEnv (x : xs) = case buildRootEnv xs of
-                          Right l -> 
-                            case x of
-                              DData    s t   -> return $ ((listMapSnd reduceArrows (typeFunctions t)) ++ (fst l), (s, t) : (snd l))
-                              DCodata  s t   -> return $ ((typeFunctions t) ++ (fst l), (s, t) : (snd l))
-                              DGlobLet s t _ _ -> return $ ((s, t) : (fst l), snd l)
-                             -- e             -> throwError $ NotValidRootExpr e
-                          Left  e -> throwError e
-
-typeFunctions :: Type -> [(Sym, Type)]
-typeFunctions (TRecInd s t)   = case t of 
-                                  TVari fs ->
-                                    listMapSnd (\x -> TArr (map (\y -> substTypeVari s (TGlobTypeVar s) y) x) (TGlobTypeVar s)) fs
-                                  _ -> []
-typeFunctions (TRecCoind s es) = listMapSnd (\x -> TArr [(TGlobTypeVar s)] (substTypeVari s (TGlobTypeVar s) x)) es
-typeFunctions _ = []
-
-reduceArrows :: Type -> Type
-reduceArrows (TArr t1 t2)     = case t1 of
-                                  [] -> t2
-                                  _  -> TArr (map reduceArrows t1) t2
-reduceArrows (TVari ts)       = TVari (listMapSnd (map reduceArrows) ts)
-reduceArrows (TRecInd s t)    = TRecInd s (reduceArrows t)
-reduceArrows (TRecCoind s es) = TRecCoind s (listMapSnd reduceArrows es)
-reduceArrows a = a
-
-checkRoot :: Expr -> Either TypeError [TypedExpr]
-checkRoot (ERoot ds) = case buildRootEnv ds of
-                         Right l -> do
-                          vEnv <- assocDups $ fst l
-                          tEnv <- assocDups $ snd l
-                          let ts = map (checkDef vEnv tEnv) ds in 
-                            case eitherUnzip $ ts of
-                              Right ts -> return ts
-                              Left err -> throwError err
-                         Left err -> throwError err
-
-
-
+-- Typing definitions
 checkDef :: Env -> Env -> Defi -> Either TypeError TypedExpr
 checkDef vEnv tEnv (DData s t) = 
   case t of
@@ -364,4 +241,127 @@ checkDef vEnv tEnv (DGlobLet s t ps e) = do
       case typeEquality (getTypeAnno te) t tEnv of
         Right _  -> return $ TEGlobLet t s ps te
         Left err -> throwError err
+
+
+-- Looks up a symbol in the environment. Throws NotInScope error if not found.
+typeVarLookup :: Sym -> Env -> Either TypeError Type
+typeVarLookup s env = case lookup s env of
+                       Just(t) -> return t
+                       Nothing -> throwError $ NotInScope s
+
+-- Type equality
+typeEquality :: Type -> Type -> Env -> Either TypeError Type
+typeEquality t1 t2 env | (globTypeSubst env t1) == (globTypeSubst env t2) = return t1
+                       | otherwise = throwError $ TypeMismatch (globTypeSubst env t1) (globTypeSubst env t2)
+
+-- Type equality for lists of types
+listTypeEquality :: [Type] -> [Type] -> Env -> Either TypeError [Type]
+listTypeEquality (x : xs) (y : ys) env = do
+  t <- (typeEquality x y env)
+  ts <- (listTypeEquality xs ys env)
+  return $ t : ts
+listTypeEquality [] [] env = return []
+listTypeEquality xs ys env = throwError $ Err $ "Type mismatch on lists: " ++ (show xs) ++ " and " ++ (show ys)
+
+isNotArrowType :: Type -> Either TypeError Type
+isNotArrowType (TArr t1 t2) = throwError $ (TypeNotAllowed (TArr t1 t2) "Arrow type not allowed")
+isNotArrowType t            = return t
+
+-- Matches the type of a TypedExpr with another type.
+matchTEWithType :: (TypedExpr, Type) -> Env -> Either TypeError Type
+matchTEWithType (te, t) = typeEquality (getTypeAnno te) t
+
+-- Substitutes recursive type variables
+substTypeVari :: Sym -> Type -> Type -> Type
+substTypeVari s t (TArr  t1 t2) = TArr (map (substTypeVari s t) t1) (substTypeVari s t t2)
+substTypeVari s t (TVari    ts) = TVari   $ listMapSnd (map $ substTypeVari s t) ts
+substTypeVari s t (TRecInd s' t') = TRecInd s' (substTypeVari s t t')
+substTypeVari s t (TRecTypeVar s') | s == s' = t
+substTypeVari _ _ a = a
+
+-- Substitutes global type variables
+globTypeSubst :: Env -> Type -> Type
+globTypeSubst env (TArr t1 t2)     = TArr (map (globTypeSubst env) t1) (globTypeSubst env t2)
+globTypeSubst env (TVari ts)       = TVari $ listMapSnd (map $ globTypeSubst env) ts
+globTypeSubst env (TRecInd s t)    = TRecInd s (globTypeSubst env t)
+globTypeSubst env (TGlobTypeVar s) = case lookup s env of
+                                           Just(t) -> globTypeSubst env t
+                                           _ -> TGlobTypeVar "not found"
+globTypeSubst _ a = a
+ 
+-- Build Root Environment. Used for before type checking to build global environment.
+buildRootEnv :: [Defi] -> Either TypeError (Env, Env)
+buildRootEnv []       = Right ([], [])
+buildRootEnv (x : xs) = case buildRootEnv xs of
+                          Right l -> 
+                            case x of
+                              DData    s t   -> return $ ((listMapSnd reduceArrows (typeFunctions t)) ++ (fst l), (s, t) : (snd l))
+                              DCodata  s t   -> return $ ((typeFunctions t) ++ (fst l), (s, t) : (snd l))
+                              DGlobLet s t _ _ -> return $ ((s, t) : (fst l), snd l)
+                             -- e             -> throwError $ NotValidRootExpr e
+                          Left  e -> throwError e
+
+-- Creates functions for constructors and destructors
+typeFunctions :: Type -> [(Sym, Type)]
+typeFunctions (TRecInd s t)   = case t of 
+                                  TVari fs ->
+                                    listMapSnd (\x -> TArr (map (\y -> substTypeVari s (TGlobTypeVar s) y) x) (TGlobTypeVar s)) fs
+                                  _ -> []
+typeFunctions (TRecCoind s es) = listMapSnd (\x -> TArr [(TGlobTypeVar s)] (substTypeVari s (TGlobTypeVar s) x)) es
+typeFunctions _ = []
+
+-- Reduces arrow types with no parameters.
+reduceArrows :: Type -> Type
+reduceArrows (TArr t1 t2)     = case t1 of
+                                  [] -> t2
+                                  _  -> TArr (map reduceArrows t1) t2
+reduceArrows (TVari ts)       = TVari (listMapSnd (map reduceArrows) ts)
+reduceArrows (TRecInd s t)    = TRecInd s (reduceArrows t)
+reduceArrows (TRecCoind s es) = TRecCoind s (listMapSnd reduceArrows es)
+reduceArrows a = a
+
+-- Finds duplicates in environments.
+assocDups :: [(Sym, a)] -> Either TypeError [(Sym, a)]
+assocDups (x : []) = return $ [x]
+assocDups (x : xs) = case lookup (fst x) xs of
+                                      Just _ -> throwError $ DuplicateName (fst x)
+                                      Nothing -> do
+                                        rest <- assocDups xs
+                                        return $ x : rest
+assocDups _ = throwError $ Err "No symbols"
+
+------ Util ------
+
+-- Maps a function over the first element of a list of pairs
+listMapFst :: (a -> c) -> [(a, b)] -> [(c, b)]
+listMapFst f p = zip (map f (fst $ unzip p)) (snd $ unzip p)
+
+-- Maps a function over the second element of a list of pairs
+listMapSnd :: (b -> c) -> [(a, b)] -> [(a, c)]
+listMapSnd f p = zip (fst $ unzip p) (map f (snd $ unzip p))
+
+eitherUnzip :: [Either a b] -> Either a [b]
+eitherUnzip []       = return []
+eitherUnzip (x : xs) = case x of 
+                        Left e  -> Left e
+                        Right t -> do
+                          ts <- eitherUnzip xs
+                          return $ t : ts
+
+bagEq :: Ord a => [a] -> [a] -> Bool
+bagEq xs ys = sort xs == sort ys
+
+maybeAppend :: Maybe [a] -> [a] -> [a]
+maybeAppend (Just xs) ys = xs ++ ys
+maybeAppend Nothing   ys =       ys
+
+assocJoin :: Eq a => [(a, b)] -> [(a, c)] -> [(b, c)]
+assocJoin [] ys       = []
+assocJoin (x : xs) ys = case lookup (fst x) ys of
+                          Just y  -> (snd x, y) : assocJoin xs ys
+                          Nothing -> error $ "Not found"
+
+pairConcat :: [([a], [b])] -> [(a, b)]
+pairConcat [] = []
+pairConcat (x : xs) = zip (fst x) (snd x) ++ (pairConcat xs)
         

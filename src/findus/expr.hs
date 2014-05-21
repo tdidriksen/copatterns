@@ -14,7 +14,7 @@ data Expr
   | ETag Sym [Expr] Type 
   | EFold Type
   | EUnfold Type
-  | ERoot [Defi]
+  | ERoot [Defi] 
   deriving (Eq, Show)
 
 data Defi
